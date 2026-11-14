@@ -1,0 +1,281 @@
+/* The TV board (index.html). Everything sits in #stage, which is laid out 1280px wide and scaled by
+   js/display.js (fitStage) so the whole board fits any screen, however many teams there are.
+   Sizes inside #stage are plain px for that reason: do not add viewport-based sizes there.
+
+   Motion: idle motion is kept to a minimum (a slow colour drift and the leader's glow) so that the
+   moments that matter, a score changing, teams swapping places or a powerup being used, stand out. */
+
+/* a soft, slow drift of colour behind everything, on its own layer so it never affects layout */
+body::after{
+  content:""; position:fixed; inset:-25%; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(circle at 18% 28%, rgba(123,140,255,0.13), transparent 46%),
+    radial-gradient(circle at 82% 18%, rgba(245,180,0,0.08),  transparent 44%),
+    radial-gradient(circle at 66% 78%, rgba(56,201,192,0.10), transparent 46%),
+    radial-gradient(circle at 22% 82%, rgba(255,92,122,0.08), transparent 44%);
+  filter:blur(28px);
+  animation:aurora 40s ease-in-out infinite;
+}
+@keyframes aurora{
+  0%,100%{ transform:translate3d(0,0,0) scale(1) rotate(0deg); }
+  25%{ transform:translate3d(2.5%,-2%,0) scale(1.09) rotate(1.2deg); }
+  50%{ transform:translate3d(-1.5%,2.5%,0) scale(1.04) rotate(-1deg); }
+  75%{ transform:translate3d(-2.5%,-1%,0) scale(1.11) rotate(0.6deg); }
+}
+
+#app{
+  position:fixed; overflow:hidden; z-index:1;
+  top:env(safe-area-inset-top, 0px); right:env(safe-area-inset-right, 0px);
+  bottom:env(safe-area-inset-bottom, 0px); left:env(safe-area-inset-left, 0px);
+}
+#stage{
+  position:absolute; left:50%; top:50%; width:1280px;
+  transform:translate(-50%, -50%); transform-origin:center center;
+}
+
+/* ---------- title ---------- */
+/* the "Scores hidden" chip sits beside the title, or drops below it rather than cutting it short */
+.board-head{ display:flex; flex-wrap:wrap; align-items:center; gap:14px 28px; padding:0 4px 26px; }
+.game-title{
+  flex:0 1 auto; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--font-display); font-weight:600; font-size:84px; line-height:0.9; letter-spacing:0.01em;
+}
+.hidden-chip{
+  flex:none; padding:10px 24px; border-radius:999px; white-space:nowrap;
+  font-size:26px; font-weight:700; color:var(--gold);
+  background:var(--gold-soft); border:1px solid rgba(245,180,0,0.45);
+}
+
+/* ---------- the board ---------- */
+.board{ --badge:58px; display:flex; flex-direction:column; gap:10px; }
+.board.many-powerups{ --badge:46px; }
+
+/* Many teams on a wide screen: two columns, ranks running down the left then the right
+   (display.js chooseColumns decides, whichever makes the board bigger on this screen). */
+#stage.two-col{ width:2600px; }
+#stage.two-col .game-title{ font-size:112px; }
+.board.two-col{
+  display:grid; grid-template-columns:1fr 1fr; grid-auto-flow:column;
+  grid-template-rows:repeat(var(--rows, 10), auto); column-gap:40px; row-gap:10px;
+}
+
+/* rank | name and bar | powerups | gaps | score. Every row has the same powerups, so the columns line up. */
+.row{
+  position:relative; overflow:hidden;
+  display:grid; grid-template-columns:64px minmax(0, 1fr) auto 176px 150px; align-items:center; gap:22px;
+  min-height:92px; padding:14px 26px 14px 18px;
+  background:var(--panel); border:1px solid var(--line); border-radius:16px;
+}
+.row.is-leader{ border-color:rgba(245,180,0,0.5); animation:leader-glow 2.4s ease-in-out infinite; }
+@keyframes leader-glow{
+  0%,100%{ box-shadow:0 0 0 1px rgba(245,180,0,0.14), 0 0 14px rgba(245,180,0,0.10); }
+  50%{ box-shadow:0 0 0 1px rgba(245,180,0,0.32), 0 0 22px rgba(245,180,0,0.24); }
+}
+/* new rows fade in (the class is removed afterwards, so moving a row never replays it) */
+.row.entering{ animation:row-in .45s cubic-bezier(.2,.7,.3,1) backwards; }
+@keyframes row-in{
+  from{ opacity:0; transform:translateY(8px) scale(0.99); }
+  to{ opacity:1; transform:translateY(0) scale(1); }
+}
+
+/* ---- score-change reactions ----
+   After the rules above so they win for the moment they play. The coloured wash is on ::after,
+   because a row that is gliding to a new place has its own animation switched off (display.js
+   playReorder): the wash still shows there, only the pulse is skipped. */
+.row.fx-gain{ animation:fx-pulse .55s cubic-bezier(.3,1.4,.4,1); }
+.row.fx-loss{ animation:fx-rattle .5s ease-in-out; }
+.row.fx-gain::after, .row.fx-loss::after{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:4;
+  animation:fx-wash .9s ease-out forwards;
+}
+.row.fx-gain::after{
+  background:radial-gradient(ellipse at center, rgba(111,221,139,0.30), transparent 72%);
+  box-shadow:inset 0 0 0 2px rgba(111,221,139,0.75), 0 0 26px rgba(111,221,139,0.35);
+}
+.row.fx-loss::after{
+  background:radial-gradient(ellipse at center, rgba(255,92,122,0.30), transparent 72%);
+  box-shadow:inset 0 0 0 2px rgba(255,92,122,0.8), 0 0 26px rgba(255,92,122,0.35);
+}
+@keyframes fx-wash{ 0%{opacity:0;} 12%{opacity:1;} 100%{opacity:0;} }
+@keyframes fx-pulse{ 0%{transform:scale(1);} 35%{transform:scale(1.03);} 100%{transform:scale(1);} }
+@keyframes fx-rattle{
+  0%,100%{ transform:translateX(0); }
+  12%{ transform:translateX(-7px); } 26%{ transform:translateX(6px); } 40%{ transform:translateX(-5px); }
+  54%{ transform:translateX(4px); }  68%{ transform:translateX(-3px); } 84%{ transform:translateX(2px); }
+}
+
+/* ---- rank ---- */
+.rank{ text-align:center; font-family:var(--font-mono); font-weight:700; font-size:28px; color:var(--faint); }
+.rank.medal{ font-size:42px; line-height:1; }
+
+/* ---- name and bar ---- */
+.row-main{ min-width:0; }
+.row-name{
+  margin-bottom:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-weight:600; font-size:32px; line-height:1.15;
+}
+.bar-track{
+  position:relative; height:14px; overflow:hidden; border-radius:999px;
+  background:var(--bg-2); box-shadow:inset 0 1px 2px rgba(0,0,0,0.35);
+}
+.bar-fill{
+  position:absolute; left:0; top:0; height:100%; min-width:6px; border-radius:999px;
+  box-shadow:0 0 10px rgba(255,255,255,0.12);
+  transition:width .7s cubic-bezier(.2,.7,.3,1), background-color .3s ease;
+}
+
+/* ---- powerups: bright when available, struck through in red once used ---- */
+.badges{ display:flex; gap:10px; }
+.badge{
+  position:relative; flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:var(--badge); height:var(--badge); border-radius:50%;
+  background:var(--bg-2); border:1px solid var(--line-2);
+  transition:opacity .35s ease, filter .35s ease, background .35s ease;
+}
+.badge .ic{ font-size:calc(var(--badge) * 0.56); line-height:1; }
+.badge.used{ filter:grayscale(1); opacity:0.5; background:rgba(255,92,122,0.08); border-color:rgba(255,92,122,0.3); }
+.badge.used::after, .badge.fx-restored::after{
+  content:""; position:absolute; inset:0; border-radius:50%;
+  background:linear-gradient(to bottom right,
+    transparent calc(50% - 1.5px), var(--red) calc(50% - 1.5px),
+    var(--red) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
+/* using or giving back a powerup flares (red out, green back) and the strike resolves out of it */
+.badge.fx-used{ animation:badge-used .85s ease-out forwards; }
+.badge.fx-used::after{ animation:strike-in .85s ease-out backwards; }
+@keyframes badge-used{
+  0%  { filter:grayscale(0);    opacity:1;    transform:scale(1);    box-shadow:0 0 0 rgba(255,92,122,0); }
+  22% { filter:grayscale(0.15); opacity:1;    transform:scale(1.28); box-shadow:0 0 20px 5px rgba(255,92,122,0.9); }
+  55% { filter:grayscale(0.7);  opacity:0.85; transform:scale(1.06); box-shadow:0 0 12px 2px rgba(255,92,122,0.5); }
+  100%{ filter:grayscale(1);    opacity:0.5;  transform:scale(1);    box-shadow:0 0 0 rgba(255,92,122,0); }
+}
+@keyframes strike-in{ 0%,32%{ opacity:0; transform:scale(0.6); } 100%{ opacity:1; transform:scale(1); } }
+.badge.fx-restored{ animation:badge-restored .85s ease-out forwards; }
+.badge.fx-restored::after{ animation:strike-out .5s ease-out forwards; }
+@keyframes badge-restored{
+  0%  { filter:grayscale(1);   opacity:0.5; transform:scale(1);    box-shadow:0 0 0 rgba(111,221,139,0); }
+  22% { filter:grayscale(0.3); opacity:1;   transform:scale(1.28); box-shadow:0 0 20px 5px rgba(111,221,139,0.9); }
+  100%{ filter:grayscale(0);   opacity:1;   transform:scale(1);    box-shadow:0 0 0 rgba(111,221,139,0); }
+}
+@keyframes strike-out{ 0%{ opacity:1; transform:scale(1); } 100%{ opacity:0; transform:scale(1.4); } }
+
+/* ---- gaps ---- */
+.gap-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.gap-chip{
+  padding:4px 14px; border-radius:999px; white-space:nowrap;
+  font-family:var(--font-mono); font-size:17px; font-weight:700; letter-spacing:0.01em;
+  background:var(--panel-2); color:var(--muted);
+}
+.gap-chip.lead{ background:var(--gold-soft); color:var(--gold); }
+.gap-chip.behind{ background:var(--red-soft); color:var(--red); }
+.gap-chip.sub{ opacity:0.75; font-weight:600; }
+
+/* ---- score ---- */
+.score{
+  text-align:right; white-space:nowrap;
+  font-family:var(--font-display); font-weight:600; font-size:66px; line-height:0.8; padding-top:8px;
+}
+.row.is-leader .score{ color:var(--gold); font-size:74px; }
+.score.pop{ animation:score-pop .5s cubic-bezier(.3,1.4,.4,1); }
+@keyframes score-pop{ 0%{transform:scale(1);} 35%{transform:scale(1.28);} 100%{transform:scale(1);} }
+
+.empty-note{ padding:60px 0; text-align:center; font-size:26px; color:var(--muted); }
+
+/* ---------- scores hidden for the final round, and the reveal ----------
+   While hidden, display.js keeps the rows in setup order with "?" for rank and score, and no gaps.
+   The bars are hidden too, because their lengths would give the order away. The reveal (playReveal)
+   veils every row, then lifts the veil one place at a time, last place first. */
+.board.scores-hidden .bar-fill, .board.revealing .bar-fill{ visibility:hidden; }
+.board.scores-hidden .score{ color:var(--faint); }
+.board.revealing .row{ transition:opacity .6s ease, transform .6s cubic-bezier(.2,.7,.3,1); }
+.row.veiled{ opacity:0; transform:translateY(16px) scale(0.98); }
+
+/* the winner's moment: a bigger pulse and a gold wash (after the rules above, so it wins) */
+.row.fx-crowned{ animation:fx-crowned 1.6s cubic-bezier(.3,1.4,.4,1); }
+.row.fx-crowned::after{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:4;
+  background:radial-gradient(ellipse at center, rgba(245,180,0,0.38), transparent 72%);
+  box-shadow:inset 0 0 0 3px rgba(245,180,0,0.9);
+  animation:fx-wash 1.6s ease-out forwards;
+}
+@keyframes fx-crowned{ 0%{transform:scale(1);} 30%{transform:scale(1.05);} 100%{transform:scale(1);} }
+
+.confetti-layer{ position:fixed; inset:0; z-index:40; overflow:hidden; pointer-events:none; }
+.confetti{
+  position:absolute; top:-16px; border-radius:2px;
+  animation-name:confetti-fall; animation-timing-function:linear; animation-fill-mode:forwards;
+}
+@keyframes confetti-fall{
+  0%  { transform:translate(0, -10vh) rotate(0deg); }
+  50% { transform:translate(var(--drift, 0px), 50vh) rotate(360deg); }
+  100%{ transform:translate(calc(var(--drift, 0px) * 1.6), 110vh) rotate(720deg); opacity:0.85; }
+}
+
+/* ---------- remote chip (outside the stage, so it keeps its size) ---------- */
+.rc-chip{
+  position:fixed; z-index:20;
+  top:calc(env(safe-area-inset-top, 0px) + 14px); right:calc(env(safe-area-inset-right, 0px) + 14px);
+  display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 14px; cursor:pointer;
+  background:rgba(19,26,46,0.85); border:1px solid var(--line); border-radius:999px; color:var(--text);
+  font-family:var(--font-mono); font-size:0.78rem; font-weight:600; letter-spacing:0.1em;
+  opacity:0.45; transition:opacity .2s ease, border-color .15s ease;
+  touch-action:manipulation;
+}
+.rc-chip:hover, .rc-chip:focus-visible, .rc-chip.attention{ opacity:1; }
+.rc-icon{ font-size:0.95rem; letter-spacing:0; }
+.rc-dot{ width:9px; height:9px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+.rc-dot.ok{ background:var(--green); box-shadow:0 0 0 3px var(--green-soft); }
+.rc-dot.warn{ background:var(--gold); box-shadow:0 0 0 3px var(--gold-soft); }
+.rc-dot.bad{ background:var(--red); box-shadow:0 0 0 3px var(--red-soft); }
+
+/* ---------- toasts ---------- */
+.toast-root{
+  position:fixed; z-index:30; left:50%; bottom:calc(env(safe-area-inset-bottom, 0px) + 22px); transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none;
+}
+.toast{
+  padding:10px 18px; border-radius:12px; font-size:15px; font-weight:600;
+  background:var(--raised); border:1px solid var(--line-2); box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  animation:fadeIn .25s ease, toast-out .3s ease 2.4s forwards;
+}
+@keyframes toast-out{ to{ opacity:0; transform:translateY(8px); } }
+
+/* ---------- pairing dialog ---------- */
+.modal-overlay{
+  position:fixed; inset:0; z-index:100; overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+  padding:calc(env(safe-area-inset-top, 0px) + 20px) calc(env(safe-area-inset-right, 0px) + 20px)
+          calc(env(safe-area-inset-bottom, 0px) + 22px) calc(env(safe-area-inset-left, 0px) + 20px);
+  background:rgba(6,8,16,0.72); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
+  animation:fadeIn .2s ease;
+}
+.modal-box{
+  width:100%; max-width:400px; max-height:100%; overflow-y:auto; padding:26px; text-align:center;
+  background:var(--panel); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow);
+}
+.modal-title{ font-family:var(--font-display); font-weight:600; font-size:2.1rem; line-height:1; letter-spacing:0.02em; }
+.modal-sub{ margin:8px 0 18px; color:var(--muted); font-size:0.88rem; line-height:1.45; }
+.modal-actions{ display:flex; gap:10px; justify-content:center; }
+.modal-actions + .modal-actions{ margin-top:10px; }
+.modal-actions .btn{ flex:1; }
+.modal-links{ display:flex; flex-direction:column; align-items:center; margin-top:10px; }
+/* another copy of the board has the remote: this one is covered completely, so a stale board never shows */
+.modal-overlay.paused{ background:var(--bg); -webkit-backdrop-filter:none; backdrop-filter:none; }
+.rc-qr{
+  display:flex; align-items:center; justify-content:center; width:208px; height:208px; margin:0 auto 14px;
+  overflow:hidden; background:#fff; border-radius:12px;
+}
+.rc-qr svg{ display:block; width:100%; height:100%; }
+.rc-qr-note{ padding:12px; color:#3a3f52; font-size:0.85rem; font-weight:600; text-align:center; line-height:1.4; }
+.rc-code-label{ font-size:0.68rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); }
+.rc-code{
+  padding-left:0.28em; font-family:var(--font-mono); font-weight:700; font-size:2rem; letter-spacing:0.28em;
+  color:var(--gold); user-select:all; -webkit-user-select:all;
+}
+.rc-link{
+  margin:6px 0 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--font-mono); font-size:0.7rem; color:var(--muted); user-select:all; -webkit-user-select:all;
+}
+.rc-status{ margin-bottom:14px; font-size:0.84rem; font-weight:600; color:var(--muted); }
+.rc-status.ok{ color:var(--green); }
+.rc-status.bad{ color:var(--red); }

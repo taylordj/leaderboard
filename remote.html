@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Score Remote">
+<meta name="theme-color" content="#0A0E1A">
+<title>Scoreboard Remote</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%86%3C/text%3E%3C/svg%3E">
+<!-- fonts load without holding up the page; the font stacks in base.css cover them if they never arrive -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Teko:wght@500;600&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/remote.css">
+<script src="vendor/mqtt.min.js" defer></script>
+<script type="module" src="js/remote.js"></script>
+</head>
+<body>
+<main id="remote" aria-label="Scoreboard remote">
+  <div class="rm-head">
+    <div class="rm-title" id="rmTitle">Remote</div>
+    <div class="rm-status warn" id="rmStatus" role="status" aria-live="polite"><span class="rm-dot"></span><span id="rmStatusText">Connecting…</span></div>
+  </div>
+
+  <!-- PAIRING: shown until the phone has a room code -->
+  <div class="rm-card" id="rmPair" hidden>
+    <label class="field-label" for="rmCodeInput">Room code</label>
+    <div class="rm-row">
+      <input type="text" id="rmCodeInput" maxlength="12" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="A7K2QX" enterkeyhint="go">
+      <button type="button" class="btn btn-gold" id="rmCodeBtn">Connect</button>
+    </div>
+    <p class="rm-help">On the TV, tap <b>📡</b> in the top corner, then scan the QR code with this phone or type the room code shown there.</p>
+    <a class="link-btn" href="index.html">Show the board on this device instead</a>
+  </div>
+
+  <!-- SCORING: one card per team, always in setup order so nothing moves under your thumb -->
+  <div class="rm-pad" id="rmPad" hidden>
+    <div class="rm-hidden" id="rmHidden" hidden>
+      <span class="rm-hidden-text">🙈 Scores hidden on the board</span>
+      <button type="button" class="btn btn-gold" id="rmReveal">Reveal ▶</button>
+    </div>
+    <fieldset class="rm-teams" id="rmTeams" aria-label="Teams"></fieldset>
+    <div class="rm-last" id="rmLast" aria-live="polite"></div>
+    <div class="rm-bar">
+      <button type="button" class="rm-btn rm-undo" id="rmUndo"><span class="rm-undo-icon" aria-hidden="true">↶</span><span class="rm-undo-text" id="rmUndoText">Undo</span></button>
+      <button type="button" class="rm-btn" id="rmSetupBtn">⚙ Setup</button>
+    </div>
+  </div>
+
+  <!-- CUSTOM AMOUNT -->
+  <div class="rm-sheet" id="rmAmountSheet" hidden>
+    <div class="rm-sheet-inner">
+      <div class="rm-sheet-title">Custom amount</div>
+      <div class="rm-amount-for" id="rmAmountFor"></div>
+      <input type="number" id="rmAmount" min="1" step="1" inputmode="numeric" enterkeyhint="done" placeholder="Points" aria-label="Number of points">
+      <div class="rm-grid">
+        <button type="button" class="rm-btn rm-minus" id="rmAmountTake">− Take away</button>
+        <button type="button" class="rm-btn rm-plus" id="rmAmountAdd">+ Add</button>
+      </div>
+      <button type="button" class="rm-btn" id="rmAmountCancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- SETUP -->
+  <div class="rm-sheet full" id="rmSetupSheet" hidden>
+    <div class="rm-sheet-inner">
+      <div class="rm-phead">
+        <div class="rm-sheet-title">Setup</div>
+        <button type="button" class="rm-x" id="rmSetupClose" aria-label="Close setup">✕</button>
+      </div>
+      <div class="rm-setup">
+        <fieldset class="rm-fields" id="rmSetupFields">
+          <section class="rm-section">
+            <label class="field-label" for="rmTitleInput">Title on the board</label>
+            <input type="text" id="rmTitleInput" maxlength="60" autocomplete="off" enterkeyhint="done" placeholder="No title">
+          </section>
+
+          <section class="rm-section">
+            <div class="rm-section-head"><span class="field-label">Teams</span><span class="rm-count" id="rmTeamCount"></span></div>
+            <div class="rm-list" id="rmTeamList"></div>
+            <div class="rm-row">
+              <input type="text" id="rmAddTeamName" maxlength="24" placeholder="New team name" autocomplete="off" enterkeyhint="done" aria-label="New team name">
+              <button type="button" class="btn btn-gold" id="rmAddTeamBtn">Add</button>
+            </div>
+            <p class="rm-hint">Tap a colour dot to change the team’s colour.</p>
+          </section>
+
+          <section class="rm-section">
+            <div class="rm-section-head"><span class="field-label">Powerups</span><span class="rm-count" id="rmPowerupCount"></span></div>
+            <div class="rm-list" id="rmPowerupList"></div>
+            <div class="rm-row">
+              <input type="text" class="rm-icon-input" id="rmAddPowerupIcon" maxlength="16" placeholder="🎲" autocomplete="off" aria-label="New powerup icon">
+              <input type="text" id="rmAddPowerupName" maxlength="24" placeholder="New powerup name" autocomplete="off" enterkeyhint="done" aria-label="New powerup name">
+              <button type="button" class="btn btn-gold" id="rmAddPowerupBtn">Add</button>
+            </div>
+            <p class="rm-hint">Every team gets one of each.</p>
+          </section>
+
+          <section class="rm-section">
+            <span class="field-label">Final round</span>
+            <button type="button" class="rm-btn" id="rmHideScores">🙈 Hide scores on the board</button>
+            <p class="rm-hint">The board keeps showing the teams and their powerups, but not the scores. You still see them here. When you are ready, tap Reveal: the board shows them from last place up to the winner.</p>
+          </section>
+
+          <section class="rm-section">
+            <span class="field-label">Round</span>
+            <button type="button" class="rm-btn rm-danger" id="rmReset">Reset round</button>
+            <p class="rm-hint">Every score back to 0 and every powerup given back. The teams and powerups stay. Undo brings the scores back.</p>
+          </section>
+        </fieldset>
+
+        <section class="rm-section">
+          <span class="field-label">Connection</span>
+          <div class="rm-conn">Room code <b id="rmCodeShow">------</b></div>
+          <div class="rm-foot">
+            <button type="button" class="link-btn" id="rmChange">Change code</button>
+            <a class="link-btn" href="index.html">Show the board on this device instead</a>
+          </div>
+        </section>
+      </div>
+      <div class="rm-last" id="rmSetupLast" aria-live="polite"></div>
+      <button type="button" class="rm-btn rm-gold" id="rmSetupDone">Done</button>
+    </div>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,227 @@
+/* The phone remote (remote.html). Portrait, one hand: the team cards scroll, the Undo / Setup bar
+   stays at the bottom within reach of a thumb. */
+
+:root{
+  /* keep clear of the screen edges, which some phones curve or fade */
+  --edge-t:calc(env(safe-area-inset-top, 0px) + 14px);
+  --edge-r:calc(env(safe-area-inset-right, 0px) + 14px);
+  --edge-b:calc(env(safe-area-inset-bottom, 0px) + 14px);
+  --edge-l:calc(env(safe-area-inset-left, 0px) + 14px);
+}
+
+#remote{
+  position:relative; overflow:hidden;
+  display:flex; flex-direction:column; gap:10px;
+  width:100%; max-width:560px; margin:0 auto; height:100vh; height:100dvh;
+  padding:var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l);
+  -webkit-user-select:none; user-select:none;
+}
+fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
+.rm-row{ display:flex; gap:8px; }
+.rm-row > input{ flex:1 1 0; }
+.rm-row > .btn{ flex:0 0 auto; }
+
+/* ---------- header ---------- */
+.rm-head{ flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.rm-title{
+  flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--font-display); font-weight:600; font-size:1.9rem; line-height:0.9; color:var(--gold);
+}
+/* the connection is what matters here: the title gives way, the status never does */
+.rm-status{
+  flex:0 0 auto; display:flex; align-items:center; gap:8px; min-width:0; padding:7px 12px; overflow:hidden; white-space:nowrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:999px;
+  font-size:0.76rem; font-weight:700; color:var(--muted);
+}
+#rmStatusText{ overflow:hidden; text-overflow:ellipsis; }
+.rm-dot{ width:9px; height:9px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+.rm-status.ok .rm-dot{ background:var(--green); box-shadow:0 0 0 3px var(--green-soft); }
+.rm-status.warn .rm-dot{ background:var(--gold); box-shadow:0 0 0 3px var(--gold-soft); }
+.rm-status.bad .rm-dot{ background:var(--red); box-shadow:0 0 0 3px var(--red-soft); }
+
+/* ---------- pairing ---------- */
+.rm-card{
+  flex:0 0 auto; padding:18px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  -webkit-user-select:auto; user-select:auto;
+}
+.rm-help{ margin:12px 0 0; font-size:0.84rem; color:var(--muted); line-height:1.45; }
+.rm-card .link-btn{ display:inline-block; margin-top:12px; padding-left:0; }
+#rmCodeInput{ font-family:var(--font-mono); font-size:1.15rem; letter-spacing:0.2em; text-transform:uppercase; }
+
+/* ---------- scoring ---------- */
+.rm-pad{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:8px; }
+/* a <fieldset>, so one `disabled` greys out every card; kept as a plain block, which every browser lays out the same */
+.rm-teams{
+  flex:1 1 0; min-height:0;
+  overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch;
+}
+.rm-teams > .tm + .tm{ margin-top:10px; }
+
+/* the board is hiding its scores (the final round): say so, with the reveal at hand */
+.rm-hidden{
+  flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:8px 8px 8px 14px;
+  background:var(--gold-soft); border:1px solid rgba(245,180,0,0.45); border-radius:14px;
+}
+.rm-hidden-text{ flex:1 1 auto; min-width:0; font-size:0.92rem; font-weight:700; color:var(--gold); }
+.rm-hidden .btn{ flex:0 0 auto; padding:11px 16px; }
+.rm-teams::-webkit-scrollbar{ display:none; }
+.rm-empty{ padding:40px 12px; text-align:center; color:var(--muted); font-size:0.92rem; line-height:1.5; }
+
+.tm{
+  display:flex; flex-direction:column; gap:10px; padding:11px 12px 12px 14px;
+  background:var(--panel); border:1px solid var(--line); border-left:5px solid var(--team, var(--line-2)); border-radius:16px;
+}
+.tm-head{ display:flex; align-items:center; gap:9px; min-height:34px; }
+.tm-rank{
+  flex:0 0 auto; min-width:42px; padding:3px 7px; text-align:center; border-radius:999px;
+  font-family:var(--font-mono); font-size:0.74rem; font-weight:700; background:var(--panel-2); color:var(--muted);
+}
+.tm-rank.first{ background:var(--gold-soft); color:var(--gold); }
+.tm-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.08rem; font-weight:700; }
+.tm-score{ flex:0 0 auto; display:flex; align-items:baseline; gap:7px; }
+.tm-num{ font-family:var(--font-display); font-weight:600; font-size:2.5rem; line-height:0.75; padding-top:6px; }
+/* a tap the TV has not confirmed yet */
+.tm-pending{ font-family:var(--font-mono); font-size:0.78rem; font-weight:700; color:var(--gold); }
+.tm-pending:empty{ display:none; }
+
+.tm-adjust{ display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; }
+.tm-btn{
+  height:48px; padding:0; cursor:pointer;
+  background:var(--panel-2); border:1px solid var(--line-2); border-radius:12px;
+  font-family:var(--font-mono); font-size:1.05rem; font-weight:700; color:var(--text);
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+  transition:transform .08s ease, background .15s ease;
+}
+.tm-btn:active{ transform:scale(0.94); background:var(--raised); }
+.tm-btn.plus{ color:var(--green); }
+.tm-btn.minus{ color:var(--red); }
+.tm-btn.custom{ color:var(--muted); font-family:var(--font-body); font-weight:800; }
+.tm-btn.sent{ animation:btnPop .28s ease; }
+
+/* powerups look like the TV's badges: bright when available, struck through in red once used */
+.tm-powerups{ display:grid; grid-template-columns:repeat(auto-fill, minmax(66px, 1fr)); gap:6px; }
+.pu{
+  position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  min-width:0; height:52px; padding:3px 4px; cursor:pointer;
+  background:var(--bg-2); border:1px solid var(--line-2); border-radius:12px; color:var(--text);
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+  transition:transform .08s ease, opacity .2s ease;
+}
+.pu:active{ transform:scale(0.95); }
+.pu-ic{ font-size:1.25rem; line-height:1; }
+.pu-name{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.66rem; font-weight:700; color:var(--muted); }
+.pu.used{ background:rgba(255,92,122,0.07); border-color:rgba(255,92,122,0.35); }
+.pu.used .pu-ic, .pu.used .pu-name{ filter:grayscale(1); opacity:0.45; }
+.pu.used::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(to bottom right,
+    transparent calc(50% - 1.5px), var(--red) calc(50% - 1.5px),
+    var(--red) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
+.pu.pending{ border-style:dashed; border-color:var(--gold); }
+
+/* "✓ +5 Team Alpha", or why the buttons are greyed out */
+.rm-last{
+  flex:0 0 auto; min-height:1.3em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  text-align:center; font-size:0.84rem; font-weight:700; color:var(--green);
+}
+.rm-last.sending{ color:var(--gold); }
+.rm-last.bad{ color:var(--red); }
+.rm-last.hint{ font-weight:600; color:var(--muted); }
+
+.rm-bar{ flex:0 0 auto; display:grid; grid-template-columns:minmax(0, 1.7fr) minmax(0, 1fr); gap:10px; }
+.rm-btn{
+  flex:0 0 auto; height:54px; padding:0 14px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; line-height:1.15;
+  font-family:var(--font-body); font-weight:800; font-size:1rem;
+  background:var(--panel-2); border:1px solid var(--line-2); border-radius:16px; color:var(--text);
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+  transition:transform .08s ease, border-color .15s ease, background .15s ease;
+}
+.rm-btn:active{ transform:scale(0.97); }
+.rm-btn.sent{ animation:btnPop .28s ease; }
+.rm-gold{ background:var(--gold); border-color:var(--gold); color:var(--gold-ink); }
+.rm-plus{ background:var(--green-soft); border-color:var(--green); color:var(--green); }
+.rm-minus{ background:var(--red-soft); border-color:var(--red); color:var(--red); }
+.rm-danger{ width:100%; border-color:rgba(255,92,122,0.5); color:var(--red); }
+.rm-undo{ min-width:0; }
+.rm-undo-icon{ flex:0 0 auto; font-size:1.25rem; }
+.rm-undo-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.92rem; }
+
+/* every control greys out clearly when it cannot be used right now */
+#remote :is(.rm-btn, .tm-btn, .pu, .btn, .rm-dot-btn, .rm-remove):disabled,
+#remote input:disabled{
+  background:var(--disabled-bg); border-color:var(--disabled-line); color:var(--disabled-ink);
+  box-shadow:none; opacity:0.6; cursor:not-allowed; transform:none;
+}
+#remote .pu:disabled .pu-ic{ filter:grayscale(1); }
+
+/* ---------- sheets (custom amount, setup) ---------- */
+.rm-sheet{
+  position:absolute; inset:0; z-index:5; display:flex; align-items:flex-end;
+  padding:var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l);
+  background:rgba(5,6,10,0.78); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
+  animation:fadeIn .18s ease;
+}
+.rm-sheet-inner{
+  width:100%; max-height:100%; overflow-y:auto; scrollbar-width:none;
+  display:flex; flex-direction:column; gap:12px; padding:16px;
+  background:var(--panel); border:1px solid var(--line); border-radius:20px;
+  -webkit-user-select:auto; user-select:auto;
+}
+.rm-sheet-inner::-webkit-scrollbar{ display:none; }
+.rm-sheet-title{ font-family:var(--font-display); font-weight:600; font-size:1.7rem; line-height:0.9; color:var(--gold); }
+.rm-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+.rm-amount-for{ font-size:0.95rem; font-weight:700; color:var(--muted); }
+#rmAmount{ font-family:var(--font-mono); font-size:1.6rem; font-weight:700; text-align:center; padding:12px; }
+
+/* setup fills the screen; its middle scrolls */
+.rm-sheet.full .rm-sheet-inner{ height:100%; overflow:hidden; gap:10px; }
+.rm-phead{ flex:0 0 auto; display:flex; align-items:center; gap:8px; }
+.rm-phead .rm-sheet-title{ flex:1; }
+.rm-x{
+  flex:0 0 40px; width:40px; height:40px; cursor:pointer;
+  background:var(--panel-2); border:1px solid var(--line-2); border-radius:12px; color:var(--text); font-size:1rem;
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+.rm-setup{
+  flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:22px; padding:4px 0 8px;
+  overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch;
+}
+.rm-setup::-webkit-scrollbar{ display:none; }
+.rm-fields > .rm-section + .rm-section{ margin-top:22px; }   /* a <fieldset>: plain block, see .rm-teams */
+.rm-section{ display:flex; flex-direction:column; gap:8px; }
+.rm-section .field-label{ margin-bottom:0; }
+.rm-section-head{ display:flex; align-items:baseline; justify-content:space-between; }
+.rm-count{ font-family:var(--font-mono); font-size:0.74rem; font-weight:700; color:var(--faint); }
+.rm-hint{ margin:0; font-size:0.78rem; line-height:1.4; color:var(--faint); }
+.rm-list{ display:flex; flex-direction:column; gap:6px; }
+.rm-item{ display:flex; align-items:center; gap:6px; }
+.rm-item input{ flex:1 1 0; padding:9px 10px; }
+.rm-dot-btn{
+  flex:0 0 38px; width:38px; height:38px; padding:0; cursor:pointer; border-radius:50%;
+  border:2px solid rgba(255,255,255,0.25); touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+.rm-dot-btn:active{ transform:scale(0.92); }
+.rm-icon-input{ flex:0 0 54px !important; width:54px; text-align:center; padding-left:4px !important; padding-right:4px !important; }
+.rm-remove{
+  flex:0 0 auto; min-width:42px; height:40px; padding:0 10px; cursor:pointer;
+  background:var(--panel-2); border:1px solid var(--line-2); border-radius:10px; color:var(--muted);
+  font-size:0.85rem; font-weight:700; touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+.rm-conn{ font-size:0.9rem; color:var(--muted); }
+.rm-conn b{ margin-left:6px; font-family:var(--font-mono); letter-spacing:0.18em; color:var(--gold); }
+.rm-foot{ display:flex; gap:14px; flex-wrap:wrap; }
+.rm-foot .link-btn{ padding-left:0; }
+
+/* Turned sideways on a phone: let the page scroll rather than squash. (Last, so it wins.) */
+@media (orientation: landscape) and (max-height: 500px){
+  html, body{ height:auto; overflow:visible; }
+  #remote{ height:auto; min-height:100dvh; overflow:visible; }
+  .rm-pad{ flex:none; }
+  .rm-teams{ flex:none; overflow:visible; }
+  .rm-sheet{ position:fixed; }
+  .rm-sheet.full .rm-sheet-inner{ height:auto; overflow-y:auto; }
+  .rm-setup{ flex:none; overflow:visible; }
+}
