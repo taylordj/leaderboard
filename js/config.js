@@ -34,7 +34,8 @@ export const REVEAL_PODIUM_MS = 2200;    // pause before 3rd, and before 2nd
 export const REVEAL_WINNER_MS = 3200;    // pause before the winner
 
 // ---- the phone ----
-export const QUICK_AMOUNTS = [-5, -1, 1, 5];
+export const DEFAULT_STEP = 1;           // points per tap on each team's − / + buttons (changed in Setup)
+export const SHEET_AMOUNTS = [1, 2, 5, 10];   // the team sheet's buttons, as + and − (plus the points per tap)
 export const UNDO_DEPTH = 20;            // how many changes the TV remembers for Undo
 export const CONFIRM_TIMEOUT_MS = 6000;  // a tap the TV has not confirmed by then is reported
 
@@ -74,4 +75,5 @@ export const STORAGE = {
   displayCode: 'lb_display_code',        // TV: its room code
   paired: 'lb_paired_code',              // TV: the room code a phone last connected to
   remoteCode: 'lb_remote_code',          // phone: the room it last joined
+  step: 'lb_remote_step',                // phone: points per tap
 };

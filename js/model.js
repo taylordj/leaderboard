@@ -85,31 +85,40 @@ export const ranked = (board) => board.teams.slice().sort((a, b) => b.score - a.
 // Equal scores are a genuine tie:
 //   rankOf[id]  competition ranking: two teams tied for 1st are both 1st, and the next team is 3rd.
 //   distinct    each score once, highest first, used for the gaps so a tie never shows "+0".
+//   groups      the same, with the teams on each score (in the order given) and their place:
+//               [{ score, teams, rank }].
 //   tiedAtTop   how many teams share the top score.
 //   allLevel    every team is on the same score (e.g. before the first point), so nobody is leading.
 export function rankInfo(teams){
   const distinct = [...new Set(teams.map((t) => t.score))].sort((a, b) => b - a);
   const rankOf = {};
   for(const t of teams) rankOf[t.id] = teams.filter((x) => x.score > t.score).length + 1;
+  const groups = distinct.map((score) => {
+    const on = teams.filter((t) => t.score === score);
+    return { score, teams: on, rank: rankOf[on[0].id] };
+  });
   return {
     rankOf,
     distinct,
-    tiedAtTop: teams.filter((t) => t.score === distinct[0]).length,
+    groups,
+    tiedAtTop: groups[0]?.teams.length ?? 0,
     allLevel: distinct.length <= 1,
   };
 }
 
 // How far a team is from the others.
-//   Leader:     { leader: true,  ahead }   (ahead: points clear of the next score, or null if none)
-//   Everyone:   { leader: false, toFirst, toNext }   (toNext is null when the next one up is 1st)
+//   Leader:     { leader: true, ahead }   (ahead: points clear of the next score, or null if none)
+//   Everyone:   { leader: false, toFirst, first, toNext, next }
+//               first is the leaders' group; next is the group just above, with toNext the gap to it.
+//               next and toNext are null when the group just above is the leaders.
 export function gaps(team, info){
   const pos = info.distinct.indexOf(team.score);
   if(pos === 0){
     return { leader: true, ahead: info.distinct.length > 1 ? team.score - info.distinct[1] : null };
   }
-  const toFirst = info.distinct[0] - team.score;
-  const toNext = pos > 1 ? info.distinct[pos - 1] - team.score : null;
-  return { leader: false, toFirst, toNext };
+  const first = info.groups[0];
+  const next = pos > 1 ? info.groups[pos - 1] : null;
+  return { leader: false, toFirst: first.score - team.score, first, toNext: next ? next.score - team.score : null, next };
 }
 
 // ---------------------------------------------------------------- changes

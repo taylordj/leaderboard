@@ -69,17 +69,33 @@ test('gaps: the leader is ahead of the next score', () => {
   eq(model.gaps(team(b, 'a'), info), { leader: true, ahead: 3 }, 'leader');
 });
 
+// the parts of gaps() the board shows: points, who, and their place
+const gapSummary = (g) => g.leader ? g : {
+  toFirst: g.toFirst, first: g.first.teams.map((t) => t.name),
+  toNext: g.toNext, next: g.next && { names: g.next.teams.map((t) => t.name), rank: g.next.rank },
+};
+
 test('gaps: second place only shows the gap to 1st', () => {
   const b = board([12, 9, 2]);
   const info = model.rankInfo(b.teams);
-  eq(model.gaps(team(b, 'b'), info), { leader: false, toFirst: 3, toNext: null }, 'second');
-  eq(model.gaps(team(b, 'c'), info), { leader: false, toFirst: 10, toNext: 7 }, 'third');
+  eq(gapSummary(model.gaps(team(b, 'b'), info)), { toFirst: 3, first: ['Team A'], toNext: null, next: null }, 'second');
+  eq(gapSummary(model.gaps(team(b, 'c'), info)), { toFirst: 10, first: ['Team A'], toNext: 7, next: { names: ['Team B'], rank: 2 } }, 'third');
+});
+
+test('gaps name everyone on the score just above, and their shared place', () => {
+  const b = board([12, 12, 5]);
+  const info = model.rankInfo(model.ranked(b));
+  eq(gapSummary(model.gaps(team(b, 'c'), info)).first, ['Team A', 'Team B'], 'joint leaders');
+  const four = { ...board(), teams: [...board([20, 9, 9]).teams, { id: 'd', name: 'Team D', color: PALETTE[3], score: 4, used: {} }] };
+  const g = gapSummary(model.gaps(four.teams[3], model.rankInfo(model.ranked(four))));
+  eq(g.next, { names: ['Team B', 'Team C'], rank: 2 }, 'tied for 2nd just above');
+  eq(g.toNext, 5, 'gap to them');
 });
 
 test('gaps never show +0 against a team on the same score', () => {
   const b = board([12, 5, 5]);
   const info = model.rankInfo(b.teams);
-  eq(model.gaps(team(b, 'c'), info), { leader: false, toFirst: 7, toNext: null }, 'tied second');
+  eq(gapSummary(model.gaps(team(b, 'c'), info)), { toFirst: 7, first: ['Team A'], toNext: null, next: null }, 'tied second');
   const level = board([4, 4, 4]);
   eq(model.gaps(team(level, 'a'), model.rankInfo(level.teams)), { leader: true, ahead: null }, 'all level');
 });

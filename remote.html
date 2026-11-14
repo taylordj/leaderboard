@@ -6,9 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Score Remote">
+<meta name="apple-mobile-web-app-title" content="Quiz Admin">
 <meta name="theme-color" content="#0A0E1A">
-<title>Scoreboard Remote</title>
+<title>Quiz Admin Panel</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%86%3C/text%3E%3C/svg%3E">
 <!-- fonts load without holding up the page; the font stacks in base.css cover them if they never arrive -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,9 +20,9 @@
 <script type="module" src="js/remote.js"></script>
 </head>
 <body>
-<main id="remote" aria-label="Scoreboard remote">
+<main id="remote" aria-label="Quiz admin panel">
   <div class="rm-head">
-    <div class="rm-title" id="rmTitle">Remote</div>
+    <div class="rm-title">Quiz Admin Panel</div>
     <div class="rm-status warn" id="rmStatus" role="status" aria-live="polite"><span class="rm-dot"></span><span id="rmStatusText">Connecting…</span></div>
   </div>
 
@@ -44,7 +44,7 @@
       <button type="button" class="btn btn-gold" id="rmReveal">Reveal ▶</button>
     </div>
     <section class="rm-board">
-      <div class="rm-board-head"><span class="field-label">Teams</span><span class="rm-board-hint">Tap a team for more</span></div>
+      <div class="rm-board-head"><span class="field-label">Teams</span><span class="rm-board-hint">Tap a team’s name for more <b>›</b></span></div>
       <!-- a <fieldset>, so one `disabled` greys out every button while the board is away -->
       <fieldset class="rm-teams" id="rmTeams" aria-label="Teams"><div class="rm-team-grid" id="rmTeamGrid"></div></fieldset>
     </section>
@@ -86,6 +86,13 @@
         <button type="button" class="rm-x" id="rmSetupClose" aria-label="Close setup">✕</button>
       </div>
       <div class="rm-setup">
+        <!-- a setting of this phone, so it can be changed even while the board is away -->
+        <section class="rm-section">
+          <label class="field-label" for="rmStepInput">Points per tap</label>
+          <input type="number" id="rmStepInput" min="1" max="1000" step="1" inputmode="numeric" enterkeyhint="done">
+          <p class="rm-hint">What the − and + buttons on each team take away or add.</p>
+        </section>
+
         <fieldset class="rm-fields" id="rmSetupFields">
           <section class="rm-section">
             <label class="field-label" for="rmTitleInput">Title on the board</label>
@@ -114,19 +121,18 @@
           </section>
 
           <section class="rm-section">
-            <span class="field-label">Final round</span>
+            <span class="field-label">Hide Scores</span>
             <button type="button" class="rm-btn" id="rmHideScores">🙈 Hide scores on the board</button>
             <div class="rm-grid" id="rmRevealRow" hidden>
               <button type="button" class="rm-btn rm-gold" id="rmRevealSetup">Reveal ▶</button>
               <button type="button" class="rm-btn" id="rmShowScores">Show now</button>
             </div>
-            <p class="rm-hint">The board keeps showing the teams and their powerups, but not the scores. You still see them here. Reveal shows them from last place up to the winner; Show now just puts them back. Both take two taps.</p>
+            <p class="rm-hint">The board shows the teams but not their scores, until you reveal them.</p>
           </section>
 
           <section class="rm-section">
-            <span class="field-label">Round</span>
+            <span class="field-label">Reset Round</span>
             <button type="button" class="rm-btn rm-danger" id="rmReset">Reset round</button>
-            <p class="rm-hint">Every score back to 0 and every powerup given back. The teams and powerups stay. Undo brings the scores back.</p>
           </section>
         </fieldset>
 

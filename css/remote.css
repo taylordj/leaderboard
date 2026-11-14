@@ -23,17 +23,12 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 .rm-row > .btn{ flex:0 0 auto; }
 .rm-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
-/* ---------- header: the board's gold title, and the connection ---------- */
+/* ---------- header: what this page is, and the connection ---------- */
 .rm-head{ flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .rm-title{
   flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  font-family:var(--font-display); font-weight:600; font-size:1.9rem; line-height:1;
-  background:linear-gradient(120deg, var(--text) 0%, var(--gold) 30%, var(--text) 60%, var(--gold) 90%);
-  background-size:200% 100%;
-  -webkit-background-clip:text; background-clip:text; color:transparent;
-  animation:title-shimmer 12s ease-in-out infinite;
+  font-family:var(--font-display); font-weight:600; font-size:1.75rem; line-height:1; color:var(--gold);
 }
-@keyframes title-shimmer{ 0%,100%{ background-position:0% 50%; } 50%{ background-position:100% 50%; } }
 /* the connection is what matters here: the title gives way, the status never does */
 .rm-status{
   flex:0 0 auto; display:flex; align-items:center; gap:8px; min-width:0; padding:7px 12px; overflow:hidden; white-space:nowrap;
@@ -71,7 +66,8 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 .rm-board{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:8px; padding:10px; }
 .rm-board-head{ flex:0 0 auto; display:flex; align-items:baseline; justify-content:space-between; padding:0 4px; }
 .rm-board-head .field-label{ margin:0; }
-.rm-board-hint{ font-size:0.72rem; color:var(--faint); }
+.rm-board-hint{ font-size:0.74rem; font-weight:600; color:var(--muted); }
+.rm-board-hint b{ color:var(--gold); }
 .rm-teams{ flex:1 1 0; min-height:0; overflow-y:auto; scrollbar-width:none; }   /* scrolls only if a tiny screen leaves no choice */
 .rm-teams::-webkit-scrollbar{ display:none; }
 .rm-empty{ padding:40px 12px; text-align:center; color:var(--muted); font-size:0.92rem; line-height:1.5; }
@@ -105,7 +101,10 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
   font-family:var(--font-mono); font-size:0.7rem; font-weight:700; background:var(--bg-2); color:var(--muted);
 }
 .tm-rank.first{ background:var(--gold-soft); color:var(--gold); }
-.tm-name{ grid-area:name; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1rem; font-weight:700; }
+/* the name, then a gold › that says "tap for more" */
+.tm-name{ grid-area:name; min-width:0; display:flex; align-items:baseline; gap:5px; font-size:1rem; font-weight:700; }
+.tm-name-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tm-more{ flex:none; font-size:1.2em; font-weight:800; line-height:1; color:var(--gold); }
 .tm-meta{ display:contents; }   /* the place (and, when roomy, the powerups) under the name */
 .tm-pus{ display:none; gap:5px; }
 .tm-pu{ position:relative; font-size:0.95rem; line-height:1; }
@@ -210,8 +209,10 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 #rmTeamFields{ display:block; }
 #rmTeamFields > * + *{ margin-top:10px; }
 #rmTeamFields .field-label{ margin-bottom:-2px; }
-.rm-quick{ display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; }
-.rm-quick .tm-btn{ height:50px; font-size:1.15rem; }
+/* + amounts on the top row, − amounts under them; the points per tap is outlined in gold */
+.rm-quick{ display:grid; grid-template-columns:repeat(var(--n, 4), 1fr); gap:6px; }
+.rm-quick .tm-btn{ height:48px; font-size:1.1rem; }
+.rm-quick .tm-btn.step{ border-color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold-soft); }
 #rmAmount{ font-family:var(--font-mono); font-size:1.4rem; font-weight:700; text-align:center; padding:10px; }
 
 /* powerups look like the board's badges: bright when available, struck through in red once used */

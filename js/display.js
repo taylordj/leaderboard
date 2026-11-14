@@ -11,7 +11,7 @@
 import {
   STORAGE, UNDO_DEPTH, PALETTE, REVEAL_STEP_MS, REVEAL_QUICK_MS, REVEAL_PODIUM_MS, REVEAL_WINNER_MS,
 } from './config.js';
-import { $, store, clamp, escapeHtml, signed, setText, restartAnimation } from './util.js';
+import { $, store, clamp, escapeHtml, ordinal, setText, restartAnimation } from './util.js';
 import * as model from './model.js';
 import { initDisplayRemote } from './display-remote.js';
 import { oneBoard } from './one-board.js';
@@ -171,8 +171,9 @@ function barPct(score, maxScore){
   return clamp((Math.max(score, 0) / maxScore) * 100, score > 0 ? 3 : 0, 100);
 }
 
-// Leader: "Leader" (or "Tied 1st") and how far clear. Everyone else: the gap to 1st, and the gap to
-// the score just above when that is not 1st anyway. Nothing at all while everyone is level.
+// Leader: "Leader" (or "Tied 1st") and how far clear. Everyone else: who they are chasing and by how
+// much, as "12 behind Team Beta (Leader)", then "3 behind Team Delta (2nd)" for the team just above
+// when that is not the leader anyway. Nothing at all while everyone is level.
 function gapChipsHtml(team, info){
   if(info.allLevel) return '';
   const g = model.gaps(team, info);
@@ -180,8 +181,14 @@ function gapChipsHtml(team, info){
     return `<span class="gap-chip lead">${info.tiedAtTop > 1 ? 'Tied 1st' : 'Leader'}</span>`
       + (g.ahead !== null ? `<span class="gap-chip sub">+${g.ahead} ahead</span>` : '');
   }
-  return `<span class="gap-chip behind">${signed(-g.toFirst)} to 1st</span>`
-    + (g.toNext !== null ? `<span class="gap-chip behind sub">${signed(-g.toNext)} to next</span>` : '');
+  return behindChip(g.toFirst, g.first, info.tiedAtTop > 1 ? 'Leaders' : 'Leader', '')
+    + (g.next ? behindChip(g.toNext, g.next, `${g.next.teams.length > 1 ? '=' : ''}${ordinal(g.next.rank)}`, ' sub') : '');
+}
+// Several teams on the score just above: the first is named, with how many more ("Team Beta +1").
+function behindChip(points, group, place, cls){
+  const who = group.teams[0].name + (group.teams.length > 1 ? ` +${group.teams.length - 1}` : '');
+  return `<span class="gap-chip behind${cls}"><b>${points}</b>&nbsp;behind&nbsp;`
+    + `<span class="gap-who">${escapeHtml(who)}</span>&nbsp;(${place})</span>`;
 }
 
 // A team's powerup strip. Does nothing unless something changed, and then only the badges that

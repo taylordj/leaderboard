@@ -1,7 +1,8 @@
 # Dan's Quiz Scoreboard
 
 A live scoreboard for a quiz night, run from your phone. The board goes on the TV and ranks the teams as their
-scores change, showing the gaps between them and which powerups each team has left.
+scores change. It shows who each team is chasing and by how much (*3 behind Team Beta (2nd)*), and which
+powerups each team has left.
 
 ## Running a quiz
 
@@ -11,7 +12,8 @@ scores change, showing the gaps between them and which powerups each team has le
    the code shown on the TV. Tap **📡** in the corner of the TV to see the code again.)
 3. On the phone, open **⚙ Setup** to set the title, the teams and the powerups. Tap a team's colour dot to pick
    its colour.
-4. During the quiz, tap **+1** or **−1** on a team. Tap the team itself for ±5, any other amount, and its
+4. During the quiz, tap **+** or **−** on a team. They add or take away 1 point, or whatever you set under
+   **⚙ Setup → Points per tap**. Tap a team's name (marked **›**) for ±1, 2, 5 or 10, any other amount, and its
    powerups.
 5. Made a mistake? **↶ Undo** says exactly what it will undo.
 
@@ -19,9 +21,9 @@ The phone confirms every tap (*✓ +1 Team Alpha*), and says so in red if the bo
 greys out while the board can't be reached. The teams stay in the order you set them up, so the buttons never
 move under your thumb; the badge on each one shows its place.
 
-## The final round
+## Hiding the scores for a reveal
 
-In **⚙ Setup**, tap **🙈 Hide scores on the board**. The TV keeps showing the teams, but not their scores,
+In **⚙ Setup → Hide Scores**, tap **🙈 Hide scores on the board**. The TV keeps showing the teams, but not their scores,
 places or gaps; your phone still shows them. When you're ready, tap **Reveal ▶** twice, on the phone's main
 screen or in Setup. The board then fills in from last place up to the winner, with confetti.
 

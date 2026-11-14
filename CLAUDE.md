@@ -57,8 +57,13 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
   - Do not use viewport-based sizes inside `#stage`.
   - FLIP distances are measured on screen, so they are divided by `fitScale`.
 - **Phone rendering:**
-  - Every team fits on one screen without scrolling. Each row has its own −1 / +1, and tapping the team opens
-    its sheet (±5, a custom amount, powerups).
+  - Every team fits on one screen without scrolling.
+  - Each row has its own − / + for the **points per tap**. That is a setting of the phone (`STORAGE.step`,
+    default `DEFAULT_STEP`), changed in Setup, not part of the board.
+  - Tapping a team's name (marked with a gold ›) opens its sheet:
+    - + and − for `SHEET_AMOUNTS` (1, 2, 5, 10), plus the points per tap, which is outlined;
+    - a one-off custom amount;
+    - the team's powerups.
   - `layoutTeams` shares the card's height between the rows and picks one of four layouts: roomy, line, tile
     (two columns) or mini (two columns, buttons beside the name). Only a tiny screen with a great many teams
     scrolls.
@@ -67,7 +72,8 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
   - Team rows are only rebuilt when a team or powerup is added, removed, renamed or recoloured. A rebuild
     during a tap swallows the tap.
   - Rows keep setup order. They never re-sort by score.
-  - The phone matches the board's style: the gold shimmering title and card panels.
+  - The phone matches the board's style (card panels), but its header always says "Quiz Admin Panel", in plain
+    gold with no shimmer. It never shows the quiz title, which only appears on the board and in Setup.
   - Never overwrite a text box that has focus, or one whose change is not confirmed yet (`hold`/`isHeld`).
   - Lists in Setup are not rebuilt while one of their boxes has focus; they catch up on `focusout`.
 - **Every tap is accounted for, truthfully.** Score and powerup taps go in `pending` and show at once. They
@@ -82,6 +88,10 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
 - **Behaviours that are deliberate (keep them):**
   - While every team is on the same score nobody is leading: no crown, no gap chips, rank shows "–".
   - Tied teams share a rank (1st, 1st, 3rd), and gap chips never show "+0".
+  - Gap chips name who a team is chasing: "12 behind Team Beta (Leader)", then "3 behind Team Delta (2nd)"
+    for the team just above (left out when that is the leader).
+    - Several teams on that score show as "Team Beta +1 (=2nd)", and tied leaders as "(Leaders)".
+    - A long name is cut with "…", never the points or the place.
   - The Undo history lives in the board's memory only (`UNDO_DEPTH`), so reloading the board clears it.
   - A command that changes nothing (for example, giving back a powerup that is already available) is not an Undo step.
   - New code, remove and Reset round all take two taps (`armConfirm`).

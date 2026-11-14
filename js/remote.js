@@ -8,7 +8,7 @@
 // to wonder whether a tap landed.
 import {
   STORAGE, PALETTE, MAX_TEAMS, MAX_POWERUPS, MAX_ADJUST, NAME_MAX, TITLE_MAX,
-  CONFIRM_TIMEOUT_MS, PING_AFTER_MS, GONE_AFTER_MS,
+  CONFIRM_TIMEOUT_MS, PING_AFTER_MS, GONE_AFTER_MS, DEFAULT_STEP, SHEET_AMOUNTS,
 } from './config.js';
 import {
   $, store, escapeHtml, signed, ordinal, setText, normaliseCode, isValidCode, randomString, restartAnimation, armConfirm,
@@ -29,6 +29,13 @@ let lastSent = null;      // { seq, label, at, ackedAt }: the latest tap, for th
 let note = null;          // { text, kind, until }: a message that takes over the feedback line for a moment
 let sheetTeam = null;     // the team whose sheet is open
 let swatchesFor = null;   // the team whose colour swatches are open in Setup
+
+// Points per tap on each team's − / + buttons: a setting of this phone, changed in Setup.
+const cleanStep = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_ADJUST ? n : 0;
+};
+let step = cleanStep(store.get(STORAGE.step)) || DEFAULT_STEP;
 
 const connection = manageConnection(() => relay, { isDisplay: false });
 const findTeam = (id) => board?.teams.find((t) => t.id === id);
@@ -175,7 +182,6 @@ function render(){
   settle(status);
   const live = !!status;
   renderConnection(status);
-  setText($('rmTitle'), board?.title || 'Scoreboard');
   renderHidden(live);
   renderTeams(live);
   renderUndo(status);
@@ -224,11 +230,11 @@ function teamRowHtml(team){
   const name = escapeHtml(team.name);
   const icons = board.powerups.map((p) => `<span class="tm-pu" data-powerup="${p.id}">${escapeHtml(p.icon)}</span>`).join('');
   return `<div class="tm" data-team="${team.id}" style="--team:${team.color}">`
-    + `<button type="button" class="tm-open" data-open aria-label="${name}: more (±5, custom amount, powerups)">`
-    + `<span class="tm-name">${name}</span><span class="tm-num"></span>`
+    + `<button type="button" class="tm-open" data-open aria-label="${name}: more points, a custom amount and powerups">`
+    + `<span class="tm-name"><span class="tm-name-text">${name}</span><span class="tm-more" aria-hidden="true">›</span></span><span class="tm-num"></span>`
     + `<span class="tm-meta"><span class="tm-rank"></span><span class="tm-pus" aria-hidden="true">${icons}</span></span></button>`
-    + `<button type="button" class="tm-btn minus" data-amount="-1" aria-label="−1 for ${name}">−1</button>`
-    + `<button type="button" class="tm-btn plus" data-amount="1" aria-label="+1 for ${name}">+1</button>`
+    + `<button type="button" class="tm-btn minus" data-amount="${-step}" aria-label="${signed(-step)} for ${name}">${signed(-step)}</button>`
+    + `<button type="button" class="tm-btn plus" data-amount="${step}" aria-label="${signed(step)} for ${name}">${signed(step)}</button>`
     + '</div>';
 }
 
@@ -243,7 +249,7 @@ function renderTeams(live){
     grid.className = 'rm-team-grid';
     return;
   }
-  const key = JSON.stringify([board.teams.map((t) => [t.id, t.name, t.color]), board.powerups.map((p) => [p.id, p.icon])]);
+  const key = JSON.stringify([step, board.teams.map((t) => [t.id, t.name, t.color]), board.powerups.map((p) => [p.id, p.icon])]);
   if(grid.dataset.key !== key){
     grid.innerHTML = board.teams.map(teamRowHtml).join('');
     grid.dataset.key = key;
@@ -323,9 +329,14 @@ function renderTeamSheet(live){
   setText($('rmTeamScore'), String(team.score + delta));
   $('rmTeamScore').classList.toggle('pending', delta !== 0);
 
+  // + on the top row and − under it: 1, 2, 5 and 10, and the points per tap if it is something else
   const quick = $('rmTeamQuick');
-  if(!quick.children.length){
-    quick.innerHTML = [-5, -1, 1, 5].map((n) => `<button type="button" class="tm-btn ${n < 0 ? 'minus' : 'plus'}" data-amount="${n}">${signed(n)}</button>`).join('');
+  const amounts = [...new Set([...SHEET_AMOUNTS, step])].sort((a, b) => a - b);
+  if(quick.dataset.key !== amounts.join()){
+    const button = (n) => `<button type="button" class="tm-btn ${n < 0 ? 'minus' : 'plus'}${Math.abs(n) === step ? ' step' : ''}" data-amount="${n}">${signed(n)}</button>`;
+    quick.innerHTML = amounts.map(button).join('') + amounts.map((n) => button(-n)).join('');
+    quick.style.setProperty('--n', String(amounts.length));
+    quick.dataset.key = amounts.join();
   }
 
   const n = amountValue();
@@ -463,6 +474,7 @@ function renderList(list, items, itemHtml, patch, onRemove){
 
 function renderSetup(live){
   if($('rmSetupSheet').hidden) return;
+  patchInput($('rmStepInput'), String(step));
   $('rmSetupFields').disabled = !live;
   setText($('rmCodeShow'), code || '------');
   if(!board) return;
@@ -499,6 +511,18 @@ function addPowerup(){
     nameInput.value = '';
     $('rmAddPowerupIcon').value = '';
   }
+}
+
+// Points per tap changed: kept on this phone, and the team rows show the new amount at once.
+function stepChanged(){
+  const input = $('rmStepInput');
+  const n = cleanStep(input.value);
+  if(n){
+    step = n;
+    store.set(STORAGE.step, String(n));
+  }
+  input.value = String(step);           // anything that is not a whole number from 1 to 1000 goes back
+  render();
 }
 
 function pickColor(team, color, dot){
@@ -575,6 +599,8 @@ $('rmSetupBtn').addEventListener('click', openSetup);
 $('rmSetupClose').addEventListener('click', closeSetup);
 $('rmSetupDone').addEventListener('click', closeSetup);
 $('rmSetupSheet').addEventListener('click', (e) => { if(e.target.id === 'rmSetupSheet') closeSetup(); });
+$('rmStepInput').addEventListener('change', stepChanged);
+$('rmStepInput').addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); $('rmStepInput').blur(); } });
 const fields = $('rmSetupFields');
 fields.addEventListener('change', (e) => { if(e.target.tagName === 'INPUT') fieldChanged(e.target); });
 fields.addEventListener('keydown', (e) => {
