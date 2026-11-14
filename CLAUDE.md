@@ -11,7 +11,7 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
 | File | What it is |
 |---|---|
 | `index.html` | Board markup: the stage, the 📡 chip and the pairing dialog. |
-| `remote.html` | Phone remote markup: pairing card, team cards, Undo/Setup bar, custom-amount and Setup sheets. |
+| `remote.html` | Phone remote markup: pairing card, the teams card, Undo/Setup bar, the team sheet and the Setup sheet. |
 | `css/base.css` | Shared colour tokens, fonts, buttons and inputs, plus the one reduced-motion rule. |
 | `css/display.css` | Board layout and every board animation. |
 | `css/remote.css` | Phone layout. The landscape fallback comes last on purpose, so it wins. |
@@ -21,7 +21,7 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
 | `js/display.js` | Board entry point: load and save, `perform()`, the undo stack, rendering rows (roll-up, flashes, reorder glide), hidden scores and the reveal (`playReveal`, confetti), one or two columns, `fitStage`. |
 | `js/display-remote.js` | The board's side of the remote (`start`/`stop`): pairing dialog and QR, running commands, publishing status, per-phone acks, the toast. |
 | `js/one-board.js` | Makes sure only one copy of the board in a browser has the remote; the others pause. |
-| `js/remote.js` | Phone entry point: connecting, sending, pending/confirmed taps, team cards, custom amount, Setup, checking the board is still there. |
+| `js/remote.js` | Phone entry point: connecting, sending, pending/confirmed taps, the team rows (`layoutTeams`), the team sheet, Setup (colour swatches, hide and reveal), checking the board is still there. |
 | `js/relay.js` | The link over several relays plus BroadcastChannel, message checks (`parseCommand`, `parseStatus`), reconnecting and wake lock. |
 | `vendor/` | Pinned third-party code: `mqtt.min.js` (MQTT.js 5.15.2) and `qrcode.js` (qrcode-generator 1.4.4). Do not edit. |
 | `tests/model.test.js` | Checks for model.js, the relay message checks and small helpers. |
@@ -57,9 +57,17 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
   - Do not use viewport-based sizes inside `#stage`.
   - FLIP distances are measured on screen, so they are divided by `fitScale`.
 - **Phone rendering:**
-  - Team cards are only rebuilt when a team or powerup is added, removed, renamed or recoloured. A rebuild
+  - Every team fits on one screen without scrolling. Each row has its own −1 / +1, and tapping the team opens
+    its sheet (±5, a custom amount, powerups).
+  - `layoutTeams` shares the card's height between the rows and picks one of four layouts: roomy, line, tile
+    (two columns) or mini (two columns, buttons beside the name). Only a tiny screen with a great many teams
+    scrolls.
+  - The rows are laid out again on every render, so anything that changes the card's height (the hidden-scores
+    bar, a resize) is picked up.
+  - Team rows are only rebuilt when a team or powerup is added, removed, renamed or recoloured. A rebuild
     during a tap swallows the tap.
-  - Cards keep setup order. They never re-sort by score.
+  - Rows keep setup order. They never re-sort by score.
+  - The phone matches the board's style: the gold shimmering title and card panels.
   - Never overwrite a text box that has focus, or one whose change is not confirmed yet (`hold`/`isHeld`).
   - Lists in Setup are not rebuilt while one of their boxes has focus; they catch up on `focusout`.
 - **Every tap is accounted for, truthfully.** Score and powerup taps go in `pending` and show at once. They
@@ -137,8 +145,11 @@ of base.css.
    `file://`. Open <http://localhost:8000/> (the board) and, from its 📡 dialog, the remote link in a
    phone-sized window. Check:
    - The pairing dialog opens on a first visit and closes itself when the phone connects.
-   - −5/−1/+1/+5 and a custom amount: the board rolls up, flashes and reorders. The phone shows *+5…*, then *✓*.
-   - Powerups: the flare and strike on the board match the chips on the phone.
+   - −1/+1 on a row, then −5/+5 and a custom amount in the team sheet: the board rolls up, flashes and
+     reorders. The phone's score turns gold until the board confirms it, then the feedback line shows *✓*.
+   - Powerups (in the team sheet): the flare and strike on the board match the chips on the phone.
+   - Every team fits on the phone without scrolling, with 2, 8, 12 and 20 teams, on a large and a small phone.
+   - Setup: a colour swatch changes the team's colour. Reveal ▶ and Show now each take two taps.
    - Undo after a score, a powerup, a removed team and a reset round.
    - Setup edits appear on the board, and a box you are typing in is never overwritten.
    - Reload the board: everything is still there. Close the board: the phone greys out within about 15 s.

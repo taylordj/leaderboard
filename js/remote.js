@@ -1,11 +1,13 @@
 // The phone remote: the host runs the board from here. Every tap is sent to the board (the TV) as a
 // command, and the board's status brings back the whole scoreboard, which is what this page draws.
 //
-// A score or powerup tap shows at once, marked as pending, until the board confirms it (its status
-// carries the last command it handled from this phone, and whether that changed anything). Anything
-// not confirmed within a few seconds is reported, so the host never has to wonder whether a tap landed.
+// Every team fits on one screen, each with its own −1 / +1. Tapping a team opens its sheet: ±5, a
+// custom amount and its powerups. A score or powerup tap shows at once, marked as pending, until the
+// board confirms it (its status carries the last command it handled from this phone, and whether that
+// changed anything). Anything not confirmed within a few seconds is reported, so the host never has
+// to wonder whether a tap landed.
 import {
-  STORAGE, QUICK_AMOUNTS, PALETTE, MAX_TEAMS, MAX_POWERUPS, MAX_ADJUST, NAME_MAX, TITLE_MAX,
+  STORAGE, PALETTE, MAX_TEAMS, MAX_POWERUPS, MAX_ADJUST, NAME_MAX, TITLE_MAX,
   CONFIRM_TIMEOUT_MS, PING_AFTER_MS, GONE_AFTER_MS,
 } from './config.js';
 import {
@@ -25,7 +27,8 @@ let board = null;         // the last board reported (kept on screen, greyed out
 let pending = [];         // score and powerup taps not confirmed yet: { seq, at, label, team, amount | powerup, used }
 let lastSent = null;      // { seq, label, at, ackedAt }: the latest tap, for the feedback line
 let note = null;          // { text, kind, until }: a message that takes over the feedback line for a moment
-let amountTeam = null;    // the team the custom-amount sheet is for
+let sheetTeam = null;     // the team whose sheet is open
+let swatchesFor = null;   // the team whose colour swatches are open in Setup
 
 const connection = manageConnection(() => relay, { isDisplay: false });
 const findTeam = (id) => board?.teams.find((t) => t.id === id);
@@ -60,7 +63,7 @@ function onRelayChange(){
 function showPairing(prefill){
   $('rmPad').hidden = true;
   closeSetup();
-  closeAmount();
+  closeTeam();
   $('rmPair').hidden = false;
   $('rmCodeInput').value = prefill;
   relay?.stop(false);
@@ -142,11 +145,26 @@ function settle(status){
   if(late.length) showNote(`Not confirmed by the board: ${late.at(-1).label}. Check the TV.`, 'bad');
 }
 
-// What a card shows: the board's score plus this phone's taps that are still on their way.
+// What the phone shows: the board's score plus this phone's taps that are still on their way.
 const pendingDelta = (teamId) => pending.reduce((sum, p) => sum + (p.team === teamId && p.amount ? p.amount : 0), 0);
 function shownUsed(team, powerupId){
   const p = pending.findLast((x) => x.team === team.id && x.powerup === powerupId);
   return p ? { used: p.used, pending: true } : { used: !!team.used[powerupId], pending: false };
+}
+
+function adjust(team, amount, btn){
+  if(btn) restartAnimation(btn, 'sent');
+  send('adjust-score', { team: team.id, amount }, { label: `${signed(amount)} ${team.name}`, track: { team: team.id, amount } });
+}
+
+function togglePowerup(team, powerupId){
+  const powerup = findPowerup(powerupId);
+  if(!powerup) return;
+  const used = !shownUsed(team, powerupId).used;
+  send('set-powerup', { team: team.id, powerup: powerupId, used }, {
+    label: `${powerup.name} ${used ? 'used' : 'given back'}: ${team.name}`,
+    track: { team: team.id, powerup: powerupId, used },
+  });
 }
 
 // ================================================================ drawing
@@ -157,11 +175,11 @@ function render(){
   settle(status);
   const live = !!status;
   renderConnection(status);
-  setText($('rmTitle'), board?.title || 'Remote');
+  setText($('rmTitle'), board?.title || 'Scoreboard');
   renderHidden(live);
   renderTeams(live);
   renderUndo(status);
-  if(!$('rmAmountSheet').hidden) renderAmount();
+  renderTeamSheet(live);
   renderSetup(live);
   renderFeedback(status);
 }
@@ -194,88 +212,157 @@ function renderFeedback(status){
   else if(relay && !status){ text = connectionState(status).hint; kind = 'hint'; }
   else if(lastSent && !lastSent.ackedAt){ text = `Sending… ${lastSent.label}`; kind = 'sending'; }
   else if(lastSent && now - lastSent.ackedAt < 3500){ text = `✓ ${lastSent.label}`; }
-  for(const el of [$('rmLast'), $('rmSetupLast')]){
+  for(const el of document.querySelectorAll('.rm-last')){
     setText(el, text);
     el.className = `rm-last ${kind}`.trim();
   }
 }
 
-// ---------------------------------------------------------------- team cards
+// ---------------------------------------------------------------- the teams
 
-function teamCardHtml(team){
+function teamRowHtml(team){
   const name = escapeHtml(team.name);
-  const quick = QUICK_AMOUNTS.map((n) => `<button type="button" class="tm-btn ${n < 0 ? 'minus' : 'plus'}" data-amount="${n}"`
-    + ` aria-label="${signed(n)} for ${name}">${signed(n)}</button>`).join('');
-  const powerups = board.powerups.length
-    ? `<div class="tm-powerups">${board.powerups.map((p) => `<button type="button" class="pu" data-powerup="${p.id}">`
-      + `<span class="pu-ic" aria-hidden="true">${escapeHtml(p.icon)}</span><span class="pu-name">${escapeHtml(p.name)}</span></button>`).join('')}</div>`
-    : '';
+  const icons = board.powerups.map((p) => `<span class="tm-pu" data-powerup="${p.id}">${escapeHtml(p.icon)}</span>`).join('');
   return `<div class="tm" data-team="${team.id}" style="--team:${team.color}">`
-    + '<div class="tm-head"><span class="tm-rank"></span>'
-    + `<span class="tm-name">${name}</span>`
-    + '<span class="tm-score"><span class="tm-pending"></span><span class="tm-num"></span></span></div>'
-    + `<div class="tm-adjust">${quick}<button type="button" class="tm-btn custom" data-custom aria-label="Custom amount for ${name}">±</button></div>`
-    + powerups
+    + `<button type="button" class="tm-open" data-open aria-label="${name}: more (±5, custom amount, powerups)">`
+    + `<span class="tm-name">${name}</span><span class="tm-num"></span>`
+    + `<span class="tm-meta"><span class="tm-rank"></span><span class="tm-pus" aria-hidden="true">${icons}</span></span></button>`
+    + `<button type="button" class="tm-btn minus" data-amount="-1" aria-label="−1 for ${name}">−1</button>`
+    + `<button type="button" class="tm-btn plus" data-amount="1" aria-label="+1 for ${name}">+1</button>`
     + '</div>';
 }
 
-// Cards are rebuilt only when a team or powerup is added, removed, renamed or recoloured. Rebuilding
+// Rows are rebuilt only when a team or powerup is added, removed, renamed or recoloured. Rebuilding
 // on every score would swallow a tap that lands just as an update arrives.
 function renderTeams(live){
-  const wrap = $('rmTeams');
-  wrap.disabled = !live;
+  $('rmTeams').disabled = !live;
+  const grid = $('rmTeamGrid');
   if(!board?.teams.length){
     const text = board ? 'No teams yet. Add them in ⚙ Setup.' : 'Waiting for the board…';
-    if(wrap.dataset.key !== text){ wrap.innerHTML = `<div class="rm-empty">${escapeHtml(text)}</div>`; wrap.dataset.key = text; }
+    if(grid.dataset.key !== text){ grid.innerHTML = `<div class="rm-empty">${escapeHtml(text)}</div>`; grid.dataset.key = text; }
+    grid.className = 'rm-team-grid';
     return;
   }
-  const key = JSON.stringify([board.teams.map((t) => [t.id, t.name, t.color]), board.powerups.map((p) => [p.id, p.icon, p.name])]);
-  if(wrap.dataset.key !== key){
-    wrap.innerHTML = board.teams.map(teamCardHtml).join('');
-    wrap.dataset.key = key;
+  const key = JSON.stringify([board.teams.map((t) => [t.id, t.name, t.color]), board.powerups.map((p) => [p.id, p.icon])]);
+  if(grid.dataset.key !== key){
+    grid.innerHTML = board.teams.map(teamRowHtml).join('');
+    grid.dataset.key = key;
   }
+  layoutTeams();
 
   const shown = board.teams.map((t) => ({ ...t, score: t.score + pendingDelta(t.id) }));
   const info = rankInfo(shown);
   for(const team of shown){
-    const card = wrap.querySelector(`[data-team="${team.id}"]`);
-    if(!card) continue;
+    const row = grid.querySelector(`[data-team="${team.id}"]`);
+    if(!row) continue;
     const rank = info.rankOf[team.id];
     const tied = shown.filter((t) => t.score === team.score).length > 1;
-    const rankEl = card.querySelector('.tm-rank');
+    const rankEl = row.querySelector('.tm-rank');
     setText(rankEl, info.allLevel ? '–' : `${tied ? '=' : ''}${ordinal(rank)}`);
     rankEl.classList.toggle('first', !info.allLevel && rank === 1);
-    setText(card.querySelector('.tm-num'), String(team.score));
-    const delta = pendingDelta(team.id);
-    setText(card.querySelector('.tm-pending'), delta ? `${signed(delta)}…` : '');
-    for(const btn of card.querySelectorAll('.pu')){
-      const powerup = findPowerup(btn.dataset.powerup);
-      if(!powerup) continue;
-      const s = shownUsed(team, powerup.id);
-      btn.classList.toggle('used', s.used);
-      btn.classList.toggle('pending', s.pending);
-      btn.setAttribute('aria-pressed', String(s.used));
-      btn.setAttribute('aria-label', `${powerup.name} for ${team.name}: ${s.used ? 'used. Tap to give it back' : 'available. Tap when used'}`);
-    }
+    const num = row.querySelector('.tm-num');
+    setText(num, String(team.score));
+    num.classList.toggle('pending', pendingDelta(team.id) !== 0);
+    for(const icon of row.querySelectorAll('.tm-pu')) icon.classList.toggle('used', shownUsed(team, icon.dataset.powerup).used);
   }
 }
 
-function adjust(team, amount, btn){
-  if(btn) restartAnimation(btn, 'sent');
-  send('adjust-score', { team: team.id, amount }, { label: `${signed(amount)} ${team.name}`, track: { team: team.id, amount } });
+// Every team fits on the screen: the rows share the card's height.
+//   One column while each row can be at least 44px tall: roomy when there is plenty of room, else one line each.
+//   Then two columns: tiles with the buttons under the name, or, when even those would be too short to
+//   tap, mini tiles with the buttons beside it.
+// Only a tiny screen with a great many teams has to scroll.
+const LANDSCAPE = matchMedia('(orientation: landscape) and (max-height: 500px)');
+const MAX_ROW = { roomy: 150, line: 72, tile: 84, mini: 56 };
+function layoutTeams(){
+  const grid = $('rmTeamGrid');
+  const n = board.teams.length;
+  const GAP = 6;
+  let cols = 1, height = 56, layout = 'line';
+  if(!LANDSCAPE.matches){              // sideways, the page scrolls instead (see remote.css)
+    const space = $('rmTeams').clientHeight;
+    const per = (rows) => (space - GAP * (rows - 1)) / rows;
+    cols = per(n) >= 44 ? 1 : 2;
+    height = per(Math.ceil(n / cols));
+    layout = cols === 1 ? (height >= 76 ? 'roomy' : 'line') : (height >= 56 ? 'tile' : 'mini');
+    height = Math.max(36, Math.min(height, MAX_ROW[layout]));
+  }
+  grid.className = `rm-team-grid ${layout}`;
+  grid.style.setProperty('--cols', String(cols));
+  grid.style.setProperty('--row-h', `${Math.floor(height)}px`);
 }
 
-function togglePowerup(team, powerupId){
-  const powerup = findPowerup(powerupId);
-  if(!powerup) return;
-  const used = !shownUsed(team, powerupId).used;
-  send('set-powerup', { team: team.id, powerup: powerupId, used }, {
-    label: `${powerup.name} ${used ? 'used' : 'given back'}: ${team.name}`,
-    track: { team: team.id, powerup: powerupId, used },
-  });
+// ---------------------------------------------------------------- one team's sheet
+
+function openTeam(team){
+  sheetTeam = team.id;
+  $('rmAmount').value = '';
+  $('rmTeamSheet').hidden = false;
+  render();
+}
+function closeTeam(){
+  $('rmTeamSheet').hidden = true;
+  sheetTeam = null;
 }
 
-// ---------------------------------------------------------------- undo
+// Phone number pads often have no minus key, so the box takes how many points, and the two
+// buttons say which way.
+function amountValue(){
+  const n = Math.abs(Math.round(Number($('rmAmount').value)));
+  return n >= 1 && n <= MAX_ADJUST ? n : 0;
+}
+
+function renderTeamSheet(live){
+  if($('rmTeamSheet').hidden) return;
+  const team = findTeam(sheetTeam);
+  if(!team){ closeTeam(); return; }                  // the team was removed meanwhile
+  $('rmTeamFields').disabled = !live;
+  $('rmTeamHead').style.setProperty('--team', team.color);
+  setText($('rmTeamName'), team.name);
+  const delta = pendingDelta(team.id);
+  setText($('rmTeamScore'), String(team.score + delta));
+  $('rmTeamScore').classList.toggle('pending', delta !== 0);
+
+  const quick = $('rmTeamQuick');
+  if(!quick.children.length){
+    quick.innerHTML = [-5, -1, 1, 5].map((n) => `<button type="button" class="tm-btn ${n < 0 ? 'minus' : 'plus'}" data-amount="${n}">${signed(n)}</button>`).join('');
+  }
+
+  const n = amountValue();
+  setText($('rmAmountAdd'), n ? `+ Add ${n}` : '+ Add');
+  setText($('rmAmountTake'), n ? `− Take away ${n}` : '− Take away');
+  $('rmAmountAdd').disabled = $('rmAmountTake').disabled = !n;
+
+  const list = $('rmTeamPowerups');
+  const key = board.powerups.map((p) => `${p.id}:${p.icon}:${p.name}`).join('|');
+  if(list.dataset.key !== key){
+    list.innerHTML = board.powerups.length
+      ? board.powerups.map((p) => `<button type="button" class="pu" data-powerup="${p.id}">`
+        + `<span class="pu-ic" aria-hidden="true">${escapeHtml(p.icon)}</span><span class="pu-name">${escapeHtml(p.name)}</span></button>`).join('')
+      : '<p class="rm-hint">No powerups. Add them in ⚙ Setup.</p>';
+    list.dataset.key = key;
+  }
+  for(const btn of list.querySelectorAll('.pu')){
+    const powerup = findPowerup(btn.dataset.powerup);
+    const s = shownUsed(team, powerup.id);
+    btn.classList.toggle('used', s.used);
+    btn.classList.toggle('pending', s.pending);
+    btn.setAttribute('aria-pressed', String(s.used));
+    btn.setAttribute('aria-label', `${powerup.name}: ${s.used ? 'used. Tap to give it back' : 'available. Tap when used'}`);
+  }
+}
+
+function applyAmount(sign){
+  const team = findTeam(sheetTeam);
+  const n = amountValue();
+  if(!team || !n) return;
+  adjust(team, sign * n);
+  $('rmAmount').value = '';
+  $('rmAmount').blur();
+  render();
+}
+
+// ---------------------------------------------------------------- undo, hidden scores and the reveal
 
 function renderUndo(status){
   const undo = status?.undo ?? null;
@@ -292,58 +379,15 @@ function undo(){
   send('undo', { label }, { label: `Undo: ${label}` });
 }
 
-// ---------------------------------------------------------------- hidden scores and the reveal
-
-// While the board hides its scores, a bar above the cards says so, with the Reveal button (tap twice).
+// While the board hides its scores, a bar above the teams says so, with the Reveal button.
 function renderHidden(live){
   const hidden = !!board?.scoresHidden;
   $('rmHidden').hidden = !hidden;
   $('rmReveal').disabled = !live;
-  if(!hidden) revealConfirm.disarm();
+  if(!hidden) for(const confirm of revealConfirms) confirm.disarm();
 }
 
-// Setup's button hides the scores, or, once hidden, shows them again straight away without a reveal.
-function toggleHidden(){
-  if(!board) return;
-  if(board.scoresHidden) send('show-scores', undefined, { label: 'Scores shown' });
-  else send('hide-scores', undefined, { label: 'Scores hidden' });
-}
-
-// ---------------------------------------------------------------- custom amount
-
-// Phone number pads often have no minus key, so the box takes how many points, and the two
-// buttons say which way.
-function amountValue(){
-  const n = Math.abs(Math.round(Number($('rmAmount').value)));
-  return n >= 1 && n <= MAX_ADJUST ? n : 0;
-}
-function openAmount(team){
-  amountTeam = team.id;
-  $('rmAmount').value = '';
-  $('rmAmountSheet').hidden = false;
-  renderAmount();
-  $('rmAmount').focus();
-}
-function closeAmount(){
-  $('rmAmountSheet').hidden = true;
-  amountTeam = null;
-}
-function renderAmount(){
-  const team = findTeam(amountTeam);
-  if(!team){ closeAmount(); return; }                 // the team was removed meanwhile
-  setText($('rmAmountFor'), `${team.name} · ${team.score + pendingDelta(team.id)} points`);
-  const n = amountValue();
-  setText($('rmAmountAdd'), n ? `+ Add ${n}` : '+ Add');
-  setText($('rmAmountTake'), n ? `− Take away ${n}` : '− Take away');
-  $('rmAmountAdd').disabled = $('rmAmountTake').disabled = !(n && currentStatus());
-}
-function applyAmount(sign){
-  const team = findTeam(amountTeam);
-  const n = amountValue();
-  if(!team || !n) return;
-  adjust(team, sign * n);
-  closeAmount();
-}
+const reveal = () => send('reveal-scores', undefined, { label: 'Scores revealed' });
 
 // ---------------------------------------------------------------- setup
 
@@ -353,18 +397,21 @@ function openSetup(){
 }
 function closeSetup(){
   $('rmSetupSheet').hidden = true;
-  resetConfirm.disarm();
+  swatchesFor = null;
+  for(const confirm of [resetConfirm, ...revealConfirms]) confirm.disarm();
 }
 
-const teamItemHtml = (t) => `<div class="rm-item" data-id="${t.id}">`
-  + '<button type="button" class="rm-dot-btn" data-color></button>'
+const teamItemHtml = (t) => `<div class="rm-item" data-id="${t.id}"><div class="rm-item-row">`
+  + '<button type="button" class="rm-dot-btn" data-color aria-expanded="false"></button>'
   + `<input type="text" maxlength="${NAME_MAX}" data-field="name" autocomplete="off" enterkeyhint="done" aria-label="Team name">`
-  + '<button type="button" class="rm-remove" data-remove>✕</button></div>';
+  + '<button type="button" class="rm-remove" data-remove>✕</button></div>'
+  + `<div class="rm-swatches" hidden>${PALETTE.map((c, i) => `<button type="button" class="rm-swatch" data-swatch="${c}" style="--swatch:${c}" aria-label="Colour ${i + 1}"></button>`).join('')}</div>`
+  + '</div>';
 
-const powerupItemHtml = (p) => `<div class="rm-item" data-id="${p.id}">`
+const powerupItemHtml = (p) => `<div class="rm-item" data-id="${p.id}"><div class="rm-item-row">`
   + '<input type="text" class="rm-icon-input" maxlength="16" data-field="icon" autocomplete="off" aria-label="Powerup icon">'
   + `<input type="text" maxlength="${NAME_MAX}" data-field="name" autocomplete="off" enterkeyhint="done" aria-label="Powerup name">`
-  + '<button type="button" class="rm-remove" data-remove>✕</button></div>';
+  + '<button type="button" class="rm-remove" data-remove>✕</button></div></div>';
 
 // A box shows the board's value, except while the host is typing in it or their change is on its way.
 function patchInput(input, value){
@@ -374,9 +421,21 @@ function patchInput(input, value){
 function patchTeamItem(el, team){
   const dot = el.querySelector('[data-color]');
   if(!isHeld(dot)){ dot.style.background = team.color; dot.dataset.color = team.color; }
-  dot.setAttribute('aria-label', `Change the colour of ${team.name}`);
+  dot.setAttribute('aria-label', `Pick a colour for ${team.name}`);
   el.querySelector('[data-remove]').setAttribute('aria-label', `Remove ${team.name}`);
   patchInput(el.querySelector('[data-field="name"]'), team.name);
+
+  const open = swatchesFor === team.id;
+  dot.setAttribute('aria-expanded', String(open));
+  const swatches = el.querySelector('.rm-swatches');
+  swatches.hidden = !open;
+  if(open){
+    const taken = new Set(board.teams.filter((t) => t.id !== team.id).map((t) => t.color));
+    for(const s of swatches.children){
+      s.classList.toggle('current', s.dataset.swatch === dot.dataset.color);
+      s.classList.toggle('taken', taken.has(s.dataset.swatch));
+    }
+  }
 }
 function patchPowerupItem(el, powerup){
   el.querySelector('[data-remove]').setAttribute('aria-label', `Remove ${powerup.name}`);
@@ -408,7 +467,8 @@ function renderSetup(live){
   setText($('rmCodeShow'), code || '------');
   if(!board) return;
   patchInput($('rmTitleInput'), board.title);
-  setText($('rmHideScores'), board.scoresHidden ? 'Show scores now (no reveal)' : '🙈 Hide scores on the board');
+  $('rmHideScores').hidden = board.scoresHidden;
+  $('rmRevealRow').hidden = !board.scoresHidden;
   renderList($('rmTeamList'), board.teams, teamItemHtml, patchTeamItem, removeTeam);
   renderList($('rmPowerupList'), board.powerups, powerupItemHtml, patchPowerupItem, removePowerup);
   setText($('rmTeamCount'), `${board.teams.length} / ${MAX_TEAMS}`);
@@ -441,12 +501,15 @@ function addPowerup(){
   }
 }
 
-// The next colour round the palette that no other team has (or simply the next, if all are taken).
-function nextColor(team, current){
-  const taken = new Set(board.teams.filter((t) => t.id !== team.id).map((t) => t.color));
-  const start = PALETTE.indexOf(current);
-  const around = PALETTE.map((_, i) => PALETTE[(start + 1 + i) % PALETTE.length]);
-  return around.find((c) => c !== current && !taken.has(c)) ?? around[0];
+function pickColor(team, color, dot){
+  swatchesFor = null;
+  if(color !== (dot.dataset.color || team.color)
+    && send('set-team-color', { team: team.id, color }, { label: `New colour for ${team.name}` })){
+    dot.style.background = color;                 // shown at once
+    dot.dataset.color = color;
+    hold(dot);
+  }
+  render();
 }
 
 // A text box was changed (on leaving it, or on Enter). A blank or unchanged value just goes back.
@@ -482,25 +545,30 @@ function fieldChanged(input){
 $('rmCodeBtn').addEventListener('click', submitCode);
 $('rmCodeInput').addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); submitCode(); } });
 
-// team cards: one listener for every button on every card
+// the teams: −1 / +1 on each row, and the row itself opens the team's sheet
 $('rmTeams').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   const team = findTeam(btn?.closest('.tm')?.dataset.team);
   if(!team || btn.matches(':disabled')) return;
   if(btn.dataset.amount) adjust(team, Number(btn.dataset.amount), btn);
-  else if(btn.hasAttribute('data-custom')) openAmount(team);
-  else if(btn.dataset.powerup) togglePowerup(team, btn.dataset.powerup);
+  else if(btn.hasAttribute('data-open')) openTeam(team);
 });
 $('rmUndo').addEventListener('click', undo);
-const revealConfirm = armConfirm($('rmReveal'), 'Tap again', () => send('reveal-scores', undefined, { label: 'Scores revealed' }));
 
-// custom amount
-$('rmAmount').addEventListener('input', renderAmount);
+// one team's sheet
+$('rmTeamFields').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  const team = findTeam(sheetTeam);
+  if(!btn || !team || btn.matches(':disabled')) return;
+  if(btn.dataset.amount) adjust(team, Number(btn.dataset.amount), btn);
+  else if(btn.dataset.powerup) togglePowerup(team, btn.dataset.powerup);
+});
+$('rmAmount').addEventListener('input', render);
 $('rmAmount').addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); $('rmAmount').blur(); } });
 $('rmAmountAdd').addEventListener('click', () => applyAmount(1));
 $('rmAmountTake').addEventListener('click', () => applyAmount(-1));
-$('rmAmountCancel').addEventListener('click', closeAmount);
-$('rmAmountSheet').addEventListener('click', (e) => { if(e.target.id === 'rmAmountSheet') closeAmount(); });
+$('rmTeamDone').addEventListener('click', closeTeam);
+$('rmTeamSheet').addEventListener('click', (e) => { if(e.target.id === 'rmTeamSheet') closeTeam(); });
 
 // setup
 $('rmSetupBtn').addEventListener('click', openSetup);
@@ -519,21 +587,29 @@ fields.addEventListener('keydown', (e) => {
 fields.addEventListener('input', (e) => { if(e.target.id.startsWith('rmAdd')) render(); });
 fields.addEventListener('focusout', () => setTimeout(render, 0));   // lists catch up once typing stops
 $('rmTeamList').addEventListener('click', (e) => {
-  const dot = e.target.closest('[data-color]');
-  const team = dot && findTeam(dot.closest('.rm-item').dataset.id);
+  const btn = e.target.closest('[data-color], [data-swatch]');
+  const team = btn && findTeam(btn.closest('.rm-item').dataset.id);
   if(!team) return;
-  const color = nextColor(team, dot.dataset.color || team.color);
-  if(send('set-team-color', { team: team.id, color }, { label: `New colour for ${team.name}` })){
-    dot.style.background = color;               // shown at once
-    dot.dataset.color = color;
-    hold(dot);
-  }
+  const dot = btn.closest('.rm-item').querySelector('[data-color]');
+  if(btn.dataset.swatch) pickColor(team, btn.dataset.swatch, dot);
+  else { swatchesFor = swatchesFor === team.id ? null : team.id; render(); }
 });
-$('rmHideScores').addEventListener('click', toggleHidden);
 $('rmAddTeamBtn').addEventListener('click', addTeam);
 $('rmAddPowerupBtn').addEventListener('click', addPowerup);
+$('rmHideScores').addEventListener('click', () => send('hide-scores', undefined, { label: 'Scores hidden' }));
+// Revealing, or showing the scores straight away, cannot be taken back once the room has seen them,
+// so each takes two taps (from the bar on the scoring screen, or from Setup).
+const revealConfirms = [
+  armConfirm($('rmReveal'), 'Tap again', reveal),
+  armConfirm($('rmRevealSetup'), 'Tap again', reveal),
+  armConfirm($('rmShowScores'), 'Tap again', () => send('show-scores', undefined, { label: 'Scores shown' })),
+];
 const resetConfirm = armConfirm($('rmReset'), 'Tap again to reset', () => send('reset-round', undefined, { label: 'Reset round' }));
 $('rmChange').addEventListener('click', () => showPairing(code));
+
+// the rows share the screen's height, so they are laid out again when it changes
+window.addEventListener('resize', render);
+LANDSCAPE.addEventListener?.('change', render);
 
 // start: the code in the address, or the room this phone joined last time
 const params = new URLSearchParams(location.search);

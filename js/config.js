@@ -10,9 +10,12 @@ export const DEFAULT_POWERUPS = [
   { name: '-5 Bomb', icon: '💣' },
 ];
 export const DEFAULT_ICON = '🎲';        // a new powerup with no icon gets this one
+// Team colours: all of them read well on the dark board. New teams take the first one nobody has;
+// the phone's Setup offers them all as swatches.
 export const PALETTE = [
   '#FF5C7A', '#38C9C0', '#7B8CFF', '#5CC8FF',
   '#B98BFF', '#6FDD8B', '#FF8A5C', '#FFD25C',
+  '#E879F9', '#A3E635', '#D6A26B', '#A5B4CF',
 ];
 
 // ---- limits (everything from the phone is checked against these) ----
