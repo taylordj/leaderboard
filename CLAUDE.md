@@ -49,9 +49,13 @@ explains how it is used. The design follows the sister project `beat-the-clock`.
 - **Board rendering: rows are made once per team, then only patched or moved.** Recreating a row replays
   its entrance and breaks the reorder glide (FLIP in `playReorder`), the score roll-up and the powerup
   flares. Powerup badges are only touched when their used/available pattern changes (`syncBadges`).
-- **The board is laid out at a fixed size and scaled to fit** (`fitStage`): 1280px wide, or 2600px in two
-  columns (`chooseColumns`). Do not use viewport-based sizes inside `#stage`. FLIP distances are measured on
-  screen, so they are divided by `fitScale`.
+- **The board is laid out at a fixed size and scaled to fit** (`fitStage`), like beat-the-clock: a centred
+  title and one card holding the standings.
+  - The stage is 1100px wide (2040px in two columns, `chooseColumns`) and **at least 720px tall**. That
+    minimum is what keeps a short list of teams from being blown up to fill the screen.
+  - If you change the sizes of the title, card or rows, update the numbers in `chooseColumns` to match.
+  - Do not use viewport-based sizes inside `#stage`.
+  - FLIP distances are measured on screen, so they are divided by `fitScale`.
 - **Phone rendering:**
   - Team cards are only rebuilt when a team or powerup is added, removed, renamed or recoloured. A rebuild
     during a tap swallows the tap.
@@ -121,8 +125,10 @@ BroadcastChannel named `danslb/1/<ROOM>`, which reaches pages in the same browse
 **Change limits, timings, defaults or the palette:** edit config.js. For colours, edit the tokens at the top
 of base.css.
 
-**Change the look of the board:** edit display.css. Keep idle motion to a minimum (the background drift and the
-leader's glow), so that score changes, reorders and powerup flares stand out.
+**Change the look of the board:** edit display.css.
+- Keep idle motion slow and faint, so that score changes, reorders and powerup flares stand out.
+- Today the idle motion is the background drift, the leader's glow, the title shimmer (12 s), the leader's
+  row sheen (7 s) and a glint on the bars (5.5 s).
 
 ## Checking a change
 

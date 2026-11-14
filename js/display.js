@@ -58,8 +58,8 @@ function render(){
   if(revealing) return;                // drawn when the reveal ends
   document.title = board.title || 'Scoreboard';
   setText($('title'), board.title);
-  $('hiddenChip').hidden = !board.scoresHidden;
-  $('boardHead').hidden = !board.title && !board.scoresHidden;
+  $('tagline').hidden = !board.scoresHidden;
+  setText($('boardLabel'), board.scoresHidden ? 'Teams' : 'Standings');
   renderBoard();
   scheduleFit();
 }
@@ -279,7 +279,8 @@ function playReorder(before){
 async function playReveal(){
   revealing = true;
   remote.publishStatus();
-  $('hiddenChip').hidden = true;
+  $('tagline').hidden = true;
+  setText($('boardLabel'), 'Standings');
   boardEl.classList.remove('scores-hidden');
   boardEl.classList.add('revealing');
   for(const row of boardEl.children) row.classList.add('veiled');
@@ -348,15 +349,18 @@ function confetti(){
 // ================================================================ fitting the screen
 
 // One column, unless two would make the board noticeably bigger on this screen (many teams on a
-// wide screen). Worked out from the design sizes, so it does not depend on the current layout.
+// wide screen). Worked out from the design sizes in display.css (stage 1100 or 2040 wide and at least
+// 720 tall; title about 86, plus 44 for the "Scores hidden" line; card edges about 68, and 72 per row),
+// so it does not depend on the current layout.
 let columns = 1;
 function chooseColumns(){
   const n = board.teams.length;
   if(n < 6) return 1;
   const app = $('app');
-  const ROW = 102, HEAD = board.title || board.scoresHidden ? 125 : 0;
-  const one = Math.min(app.clientWidth / 1280, app.clientHeight / (HEAD + n * ROW));
-  const two = Math.min(app.clientWidth / 2600, app.clientHeight / (HEAD + Math.ceil(n / 2) * ROW));
+  const head = 86 + (board.scoresHidden ? 44 : 0);
+  const height = (rows) => Math.max(720, head + 68 + rows * 72);
+  const one = Math.min(app.clientWidth / 1100, app.clientHeight / height(n));
+  const two = Math.min(app.clientWidth / 2040, app.clientHeight / height(Math.ceil(n / 2)));
   return two > one * 1.1 ? 2 : 1;
 }
 // -> true if the number of columns changed

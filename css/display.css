@@ -1,9 +1,12 @@
-/* The TV board (index.html). Everything sits in #stage, which is laid out 1280px wide and scaled by
-   js/display.js (fitStage) so the whole board fits any screen, however many teams there are.
-   Sizes inside #stage are plain px for that reason: do not add viewport-based sizes there.
+/* The TV board (index.html), laid out like beat-the-clock: a centred title, and one card holding the
+   standings. Everything sits in #stage, which is laid out 1100px wide (2040px in two columns) and at
+   least 720px tall, then scaled by js/display.js (fitStage) to fit the screen. The minimum height is
+   what stops a short list of teams being blown up to fill the screen. Sizes inside #stage are plain px
+   for that reason: do not add viewport-based sizes there.
 
-   Motion: idle motion is kept to a minimum (a slow colour drift and the leader's glow) so that the
-   moments that matter, a score changing, teams swapping places or a powerup being used, stand out. */
+   Motion: idle motion is slow and faint (a colour drift, the leader's glow and a few shimmers), so
+   that the moments that matter, a score changing, teams swapping places or a powerup being used,
+   stand out. */
 
 /* a soft, slow drift of colour behind everything, on its own layer so it never affects layout */
 body::after{
@@ -29,48 +32,72 @@ body::after{
   bottom:env(safe-area-inset-bottom, 0px); left:env(safe-area-inset-left, 0px);
 }
 #stage{
-  position:absolute; left:50%; top:50%; width:1280px;
+  position:absolute; left:50%; top:50%; width:1100px; min-height:720px;
+  display:flex; flex-direction:column; justify-content:center;
   transform:translate(-50%, -50%); transform-origin:center center;
 }
+#stage.two-col{ width:2040px; }
 
 /* ---------- title ---------- */
-/* the "Scores hidden" chip sits beside the title, or drops below it rather than cutting it short */
-.board-head{ display:flex; flex-wrap:wrap; align-items:center; gap:14px 28px; padding:0 4px 26px; }
+.hero{ padding:0 0 22px; text-align:center; }
+/* gold and white, with a slow shimmer running through it */
 .game-title{
-  flex:0 1 auto; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  font-family:var(--font-display); font-weight:600; font-size:84px; line-height:0.9; letter-spacing:0.01em;
+  margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--font-display); font-weight:600; font-size:68px; line-height:1; letter-spacing:0.02em;
+  background:linear-gradient(120deg, var(--text) 0%, var(--gold) 30%, var(--text) 60%, var(--gold) 90%);
+  background-size:200% 100%;
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  animation:title-shimmer 12s ease-in-out infinite;
 }
+@keyframes title-shimmer{ 0%,100%{ background-position:0% 50%; } 50%{ background-position:100% 50%; } }
+#stage.two-col .game-title{ font-size:80px; }
+/* under the title only while the scores are hidden */
+.tagline{ display:flex; justify-content:center; align-items:center; height:34px; margin-top:10px; }
 .hidden-chip{
-  flex:none; padding:10px 24px; border-radius:999px; white-space:nowrap;
-  font-size:26px; font-weight:700; color:var(--gold);
+  padding:5px 16px; border-radius:999px; white-space:nowrap;
+  font-size:15px; font-weight:700; color:var(--gold);
   background:var(--gold-soft); border:1px solid rgba(245,180,0,0.45);
 }
 
-/* ---------- the board ---------- */
-.board{ --badge:58px; display:flex; flex-direction:column; gap:10px; }
-.board.many-powerups{ --badge:46px; }
+/* ---------- the card ---------- */
+.board-card{
+  width:calc(100% - 160px); margin:0 auto; padding:18px 22px 22px;
+  background:var(--panel); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow);
+}
+.board-label{
+  margin:0 0 12px 4px;
+  font-size:11.5px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);
+}
 
+/* ---------- the board ---------- */
+.board{ --badge:34px; display:flex; flex-direction:column; gap:8px; }
+.board.many-powerups{ --badge:28px; }
 /* Many teams on a wide screen: two columns, ranks running down the left then the right
    (display.js chooseColumns decides, whichever makes the board bigger on this screen). */
-#stage.two-col{ width:2600px; }
-#stage.two-col .game-title{ font-size:112px; }
 .board.two-col{
   display:grid; grid-template-columns:1fr 1fr; grid-auto-flow:column;
-  grid-template-rows:repeat(var(--rows, 10), auto); column-gap:40px; row-gap:10px;
+  grid-template-rows:repeat(var(--rows, 10), auto); gap:8px 16px;
 }
 
 /* rank | name and bar | powerups | gaps | score. Every row has the same powerups, so the columns line up. */
 .row{
   position:relative; overflow:hidden;
-  display:grid; grid-template-columns:64px minmax(0, 1fr) auto 176px 150px; align-items:center; gap:22px;
-  min-height:92px; padding:14px 26px 14px 18px;
-  background:var(--panel); border:1px solid var(--line); border-radius:16px;
+  display:grid; grid-template-columns:44px minmax(0, 1fr) auto 112px 86px; align-items:center; column-gap:14px;
+  min-height:64px; padding:8px 18px 8px 10px;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:12px;
 }
-.row.is-leader{ border-color:rgba(245,180,0,0.5); animation:leader-glow 2.4s ease-in-out infinite; }
+.row.is-leader{ border-color:rgba(245,180,0,0.5); animation:leader-glow 2.8s ease-in-out infinite; }
 @keyframes leader-glow{
-  0%,100%{ box-shadow:0 0 0 1px rgba(245,180,0,0.14), 0 0 14px rgba(245,180,0,0.10); }
-  50%{ box-shadow:0 0 0 1px rgba(245,180,0,0.32), 0 0 22px rgba(245,180,0,0.24); }
+  0%,100%{ box-shadow:0 0 0 1px rgba(245,180,0,0.12), 0 0 10px rgba(245,180,0,0.08); }
+  50%{ box-shadow:0 0 0 1px rgba(245,180,0,0.28), 0 0 18px rgba(245,180,0,0.2); }
 }
+/* a faint sheen drifting across the leader's row now and then */
+.row.is-leader::before{
+  content:""; position:absolute; top:0; left:0; width:35%; height:100%; pointer-events:none;
+  background:linear-gradient(100deg, transparent, rgba(245,180,0,0.09), transparent);
+  animation:row-sheen 7s ease-in-out infinite;
+}
+@keyframes row-sheen{ 0%{ transform:translateX(-110%); } 50%,100%{ transform:translateX(300%); } }
 /* new rows fade in (the class is removed afterwards, so moving a row never replays it) */
 .row.entering{ animation:row-in .45s cubic-bezier(.2,.7,.3,1) backwards; }
 @keyframes row-in{
@@ -90,42 +117,48 @@ body::after{
 }
 .row.fx-gain::after{
   background:radial-gradient(ellipse at center, rgba(111,221,139,0.30), transparent 72%);
-  box-shadow:inset 0 0 0 2px rgba(111,221,139,0.75), 0 0 26px rgba(111,221,139,0.35);
+  box-shadow:inset 0 0 0 2px rgba(111,221,139,0.75);
 }
 .row.fx-loss::after{
   background:radial-gradient(ellipse at center, rgba(255,92,122,0.30), transparent 72%);
-  box-shadow:inset 0 0 0 2px rgba(255,92,122,0.8), 0 0 26px rgba(255,92,122,0.35);
+  box-shadow:inset 0 0 0 2px rgba(255,92,122,0.8);
 }
 @keyframes fx-wash{ 0%{opacity:0;} 12%{opacity:1;} 100%{opacity:0;} }
-@keyframes fx-pulse{ 0%{transform:scale(1);} 35%{transform:scale(1.03);} 100%{transform:scale(1);} }
+@keyframes fx-pulse{ 0%{transform:scale(1);} 35%{transform:scale(1.025);} 100%{transform:scale(1);} }
 @keyframes fx-rattle{
   0%,100%{ transform:translateX(0); }
-  12%{ transform:translateX(-7px); } 26%{ transform:translateX(6px); } 40%{ transform:translateX(-5px); }
-  54%{ transform:translateX(4px); }  68%{ transform:translateX(-3px); } 84%{ transform:translateX(2px); }
+  12%{ transform:translateX(-6px); } 26%{ transform:translateX(5px); } 40%{ transform:translateX(-4px); }
+  54%{ transform:translateX(3px); }  68%{ transform:translateX(-2px); } 84%{ transform:translateX(1px); }
 }
 
 /* ---- rank ---- */
-.rank{ text-align:center; font-family:var(--font-mono); font-weight:700; font-size:28px; color:var(--faint); }
-.rank.medal{ font-size:42px; line-height:1; }
+.rank{ text-align:center; font-family:var(--font-display); font-weight:600; font-size:26px; line-height:1; color:var(--muted); }
+.rank.medal{ font-size:28px; }
 
 /* ---- name and bar ---- */
 .row-main{ min-width:0; }
 .row-name{
-  margin-bottom:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  font-weight:600; font-size:32px; line-height:1.15;
+  margin-bottom:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-weight:700; font-size:19px; line-height:1.15;
 }
 .bar-track{
-  position:relative; height:14px; overflow:hidden; border-radius:999px;
+  position:relative; height:6px; overflow:hidden; border-radius:999px;
   background:var(--bg-2); box-shadow:inset 0 1px 2px rgba(0,0,0,0.35);
 }
 .bar-fill{
-  position:absolute; left:0; top:0; height:100%; min-width:6px; border-radius:999px;
-  box-shadow:0 0 10px rgba(255,255,255,0.12);
+  position:absolute; left:0; top:0; height:100%; min-width:4px; overflow:hidden; border-radius:999px;
   transition:width .7s cubic-bezier(.2,.7,.3,1), background-color .3s ease;
 }
+/* a light glint travelling along each bar, then a rest */
+.bar-fill::after{
+  content:""; position:absolute; top:0; left:0; width:35%; height:100%;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation:bar-sheen 5.5s ease-in-out infinite;
+}
+@keyframes bar-sheen{ 0%{ transform:translateX(-110%); } 55%,100%{ transform:translateX(300%); } }
 
 /* ---- powerups: bright when available, struck through in red once used ---- */
-.badges{ display:flex; gap:10px; }
+.badges{ display:flex; gap:6px; }
 .badge{
   position:relative; flex:none; display:inline-flex; align-items:center; justify-content:center;
   width:var(--badge); height:var(--badge); border-radius:50%;
@@ -137,16 +170,16 @@ body::after{
 .badge.used::after, .badge.fx-restored::after{
   content:""; position:absolute; inset:0; border-radius:50%;
   background:linear-gradient(to bottom right,
-    transparent calc(50% - 1.5px), var(--red) calc(50% - 1.5px),
-    var(--red) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+    transparent calc(50% - 1px), var(--red) calc(50% - 1px),
+    var(--red) calc(50% + 1px), transparent calc(50% + 1px));
 }
 /* using or giving back a powerup flares (red out, green back) and the strike resolves out of it */
 .badge.fx-used{ animation:badge-used .85s ease-out forwards; }
 .badge.fx-used::after{ animation:strike-in .85s ease-out backwards; }
 @keyframes badge-used{
   0%  { filter:grayscale(0);    opacity:1;    transform:scale(1);    box-shadow:0 0 0 rgba(255,92,122,0); }
-  22% { filter:grayscale(0.15); opacity:1;    transform:scale(1.28); box-shadow:0 0 20px 5px rgba(255,92,122,0.9); }
-  55% { filter:grayscale(0.7);  opacity:0.85; transform:scale(1.06); box-shadow:0 0 12px 2px rgba(255,92,122,0.5); }
+  22% { filter:grayscale(0.15); opacity:1;    transform:scale(1.28); box-shadow:0 0 14px 4px rgba(255,92,122,0.9); }
+  55% { filter:grayscale(0.7);  opacity:0.85; transform:scale(1.06); box-shadow:0 0 8px 2px rgba(255,92,122,0.5); }
   100%{ filter:grayscale(1);    opacity:0.5;  transform:scale(1);    box-shadow:0 0 0 rgba(255,92,122,0); }
 }
 @keyframes strike-in{ 0%,32%{ opacity:0; transform:scale(0.6); } 100%{ opacity:1; transform:scale(1); } }
@@ -154,17 +187,17 @@ body::after{
 .badge.fx-restored::after{ animation:strike-out .5s ease-out forwards; }
 @keyframes badge-restored{
   0%  { filter:grayscale(1);   opacity:0.5; transform:scale(1);    box-shadow:0 0 0 rgba(111,221,139,0); }
-  22% { filter:grayscale(0.3); opacity:1;   transform:scale(1.28); box-shadow:0 0 20px 5px rgba(111,221,139,0.9); }
+  22% { filter:grayscale(0.3); opacity:1;   transform:scale(1.28); box-shadow:0 0 14px 4px rgba(111,221,139,0.9); }
   100%{ filter:grayscale(0);   opacity:1;   transform:scale(1);    box-shadow:0 0 0 rgba(111,221,139,0); }
 }
 @keyframes strike-out{ 0%{ opacity:1; transform:scale(1); } 100%{ opacity:0; transform:scale(1.4); } }
 
 /* ---- gaps ---- */
-.gap-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.gap-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
 .gap-chip{
-  padding:4px 14px; border-radius:999px; white-space:nowrap;
-  font-family:var(--font-mono); font-size:17px; font-weight:700; letter-spacing:0.01em;
-  background:var(--panel-2); color:var(--muted);
+  padding:2px 9px; border-radius:999px; white-space:nowrap;
+  font-family:var(--font-mono); font-size:11.5px; font-weight:700; letter-spacing:0.01em;
+  background:var(--bg-2); color:var(--muted);
 }
 .gap-chip.lead{ background:var(--gold-soft); color:var(--gold); }
 .gap-chip.behind{ background:var(--red-soft); color:var(--red); }
@@ -173,13 +206,13 @@ body::after{
 /* ---- score ---- */
 .score{
   text-align:right; white-space:nowrap;
-  font-family:var(--font-display); font-weight:600; font-size:66px; line-height:0.8; padding-top:8px;
+  font-family:var(--font-display); font-weight:600; font-size:44px; line-height:0.8; padding-top:5px;
 }
-.row.is-leader .score{ color:var(--gold); font-size:74px; }
+.row.is-leader .score{ color:var(--gold); font-size:48px; }
 .score.pop{ animation:score-pop .5s cubic-bezier(.3,1.4,.4,1); }
-@keyframes score-pop{ 0%{transform:scale(1);} 35%{transform:scale(1.28);} 100%{transform:scale(1);} }
+@keyframes score-pop{ 0%{transform:scale(1);} 35%{transform:scale(1.25);} 100%{transform:scale(1);} }
 
-.empty-note{ padding:60px 0; text-align:center; font-size:26px; color:var(--muted); }
+.empty-note{ padding:40px 0; text-align:center; font-size:18px; color:var(--muted); }
 
 /* ---------- scores hidden for the final round, and the reveal ----------
    While hidden, display.js keeps the rows in setup order with "?" for rank and score, and no gaps.
@@ -188,14 +221,14 @@ body::after{
 .board.scores-hidden .bar-fill, .board.revealing .bar-fill{ visibility:hidden; }
 .board.scores-hidden .score{ color:var(--faint); }
 .board.revealing .row{ transition:opacity .6s ease, transform .6s cubic-bezier(.2,.7,.3,1); }
-.row.veiled{ opacity:0; transform:translateY(16px) scale(0.98); }
+.row.veiled{ opacity:0; transform:translateY(12px) scale(0.98); }
 
 /* the winner's moment: a bigger pulse and a gold wash (after the rules above, so it wins) */
 .row.fx-crowned{ animation:fx-crowned 1.6s cubic-bezier(.3,1.4,.4,1); }
 .row.fx-crowned::after{
   content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:4;
   background:radial-gradient(ellipse at center, rgba(245,180,0,0.38), transparent 72%);
-  box-shadow:inset 0 0 0 3px rgba(245,180,0,0.9);
+  box-shadow:inset 0 0 0 2px rgba(245,180,0,0.9);
   animation:fx-wash 1.6s ease-out forwards;
 }
 @keyframes fx-crowned{ 0%{transform:scale(1);} 30%{transform:scale(1.05);} 100%{transform:scale(1);} }

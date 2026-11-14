@@ -19,12 +19,15 @@
 <body>
 <div id="app">
   <div id="stage">
-    <header class="board-head" id="boardHead">
+    <header class="hero">
       <h1 class="game-title" id="title"></h1>
-      <span class="hidden-chip" id="hiddenChip" hidden>🙈 Scores hidden until the reveal</span>
+      <div class="tagline" id="tagline" hidden><span class="hidden-chip">🙈 Scores hidden until the reveal</span></div>
     </header>
-    <div class="board" id="board"></div>
-    <div class="empty-note" id="emptyNote" hidden>No teams yet. Add them from the remote (📡).</div>
+    <section class="board-card">
+      <div class="board-label" id="boardLabel">Standings</div>
+      <div class="board" id="board"></div>
+      <div class="empty-note" id="emptyNote" hidden>No teams yet. Add them from the remote (📡).</div>
+    </section>
   </div>
 </div>
 
