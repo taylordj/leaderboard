@@ -7,19 +7,19 @@
 //   - a newer copy pauses and says so, and "Use this window instead" moves the remote to it;
 //   - if the copy with the remote closes, a paused one takes over by itself.
 //
-// Messages on the BroadcastChannel 'danslb/1/boards', each with the sender's `id`:
+// Messages on the BroadcastChannel 'danslb/2/boards', each with the sender's `id`:
 //   { type:'ask' }          a new copy: is anyone in charge?
 //   { type:'active', at }   I have the remote (since `at`). The later claim wins if two copies claim at once.
 //   { type:'gone' }         the copy with the remote is closing.
 import { TOPIC_ROOT } from './config.js';
-import { randomString } from './util.js';
+import { randomId } from './util.js';
 
 const LISTEN_MS = 400;   // how long a new copy listens for one that is already in charge
 
 // onActive(): this copy now has the remote. onPaused(): another copy has it.
 // -> { claim() }, which takes the remote over.
 export function oneBoard({ onActive, onPaused }){
-  const id = randomString(10, 'abcdefghijklmnopqrstuvwxyz0123456789');
+  const id = randomId(10);
   let state = '';          // '' while listening, then 'active' or 'paused'
   let claimedAt = 0;
   let activeId = '';       // when paused: the copy that has the remote

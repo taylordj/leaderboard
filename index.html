@@ -21,7 +21,7 @@
   <div id="stage">
     <header class="hero">
       <h1 class="game-title" id="title"></h1>
-      <div class="tagline" id="tagline" hidden><span class="hidden-chip">🙈 Scores hidden until the reveal</span></div>
+      <div class="tagline" id="tagline" hidden><span class="hidden-chip" id="hiddenChip">🙈 Scores hidden until the reveal</span></div>
     </header>
     <section class="board-card">
       <div class="board-label" id="boardLabel">Standings</div>
@@ -52,7 +52,7 @@
 
 <!-- pairing a phone as the remote -->
 <div class="modal-overlay" id="remoteModal" hidden>
-  <div class="modal-box remote-box" role="dialog" aria-modal="true" aria-labelledby="rcTitle">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="rcTitle">
     <div class="modal-title" id="rcTitle">Connect your phone</div>
     <div class="modal-sub">Scan this with your phone’s camera. The phone becomes the remote for this board.</div>
     <div class="rc-qr" id="rcQr"></div>

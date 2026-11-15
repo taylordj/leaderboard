@@ -5,7 +5,8 @@
 //     title:        string,
 //     powerups:     [ { id, name, icon } ],
 //     teams:        [ { id, name, color, score, used: { [powerupId]: true } } ],
-//     scoresHidden: boolean    -- the TV shows the teams but not the scores, until a reveal
+//     scoresHidden: boolean    -- the TV shows the teams but not the scores
+//     revealed:     [teamId]   -- while hidden: the teams the host has revealed so far (see nextReveal)
 //   }
 // Every team has one of each powerup. A powerup is either available or used; there are no counts.
 //
@@ -14,7 +15,7 @@ import {
   DEFAULT_TITLE, DEFAULT_TEAMS, DEFAULT_POWERUPS, DEFAULT_ICON, PALETTE,
   MAX_TEAMS, MAX_POWERUPS, NAME_MAX, TITLE_MAX, ICON_MAX, MAX_ADJUST, MAX_SCORE,
 } from './config.js';
-import { clamp, newId, signed } from './util.js';
+import { clamp, randomId, ordinal, signed } from './util.js';
 
 // ---------------------------------------------------------------- cleaning input
 
@@ -38,11 +39,11 @@ function freeColor(teams){
 // ---------------------------------------------------------------- boards
 
 export function defaultBoard(){
-  const powerups = DEFAULT_POWERUPS.map((p) => ({ id: newId(), name: p.name, icon: p.icon }));
+  const powerups = DEFAULT_POWERUPS.map((p) => ({ id: randomId(), name: p.name, icon: p.icon }));
   const teams = DEFAULT_TEAMS.map((name, i) => ({
-    id: newId(), name, color: PALETTE[i % PALETTE.length], score: 0, used: {},
+    id: randomId(), name, color: PALETTE[i % PALETTE.length], score: 0, used: {},
   }));
-  return { title: DEFAULT_TITLE, powerups, teams, scoresHidden: false };
+  return { title: DEFAULT_TITLE, powerups, teams, scoresHidden: false, revealed: [] };
 }
 
 // Anything (from storage, or from the network) -> a board that is safe to use, or null if it is not
@@ -74,7 +75,11 @@ export function sanitizeBoard(raw){
   }
 
   const title = typeof raw.title === 'string' ? cleanText(raw.title, TITLE_MAX) : DEFAULT_TITLE;
-  return { title, powerups, teams, scoresHidden: raw.scoresHidden === true };
+  const scoresHidden = raw.scoresHidden === true;
+  const revealed = scoresHidden && Array.isArray(raw.revealed)
+    ? teams.filter((t) => raw.revealed.includes(t.id)).map((t) => t.id)
+    : [];
+  return { title, powerups, teams, scoresHidden, revealed };
 }
 
 // ---------------------------------------------------------------- standings
@@ -84,26 +89,15 @@ export const ranked = (board) => board.teams.slice().sort((a, b) => b.score - a.
 
 // Equal scores are a genuine tie:
 //   rankOf[id]  competition ranking: two teams tied for 1st are both 1st, and the next team is 3rd.
-//   distinct    each score once, highest first, used for the gaps so a tie never shows "+0".
-//   groups      the same, with the teams on each score (in the order given) and their place:
-//               [{ score, teams, rank }].
-//   tiedAtTop   how many teams share the top score.
+//   groups      each score once, highest first, with the teams on it (in the order given):
+//               [{ score, teams }]. Gaps are measured between groups, so a tie never shows "+0".
 //   allLevel    every team is on the same score (e.g. before the first point), so nobody is leading.
 export function rankInfo(teams){
-  const distinct = [...new Set(teams.map((t) => t.score))].sort((a, b) => b - a);
+  const scores = [...new Set(teams.map((t) => t.score))].sort((a, b) => b - a);
   const rankOf = {};
   for(const t of teams) rankOf[t.id] = teams.filter((x) => x.score > t.score).length + 1;
-  const groups = distinct.map((score) => {
-    const on = teams.filter((t) => t.score === score);
-    return { score, teams: on, rank: rankOf[on[0].id] };
-  });
-  return {
-    rankOf,
-    distinct,
-    groups,
-    tiedAtTop: groups[0]?.teams.length ?? 0,
-    allLevel: distinct.length <= 1,
-  };
+  const groups = scores.map((score) => ({ score, teams: teams.filter((t) => t.score === score) }));
+  return { rankOf, groups, allLevel: groups.length <= 1 };
 }
 
 // How far a team is from the others.
@@ -112,14 +106,42 @@ export function rankInfo(teams){
 //               first is the leaders' group; next is the group just above, with toNext the gap to it.
 //               next and toNext are null when the group just above is the leaders.
 export function gaps(team, info){
-  const pos = info.distinct.indexOf(team.score);
-  if(pos === 0){
-    return { leader: true, ahead: info.distinct.length > 1 ? team.score - info.distinct[1] : null };
-  }
-  const first = info.groups[0];
-  const next = pos > 1 ? info.groups[pos - 1] : null;
-  return { leader: false, toFirst: first.score - team.score, first, toNext: next ? next.score - team.score : null, next };
+  const { groups } = info;
+  const pos = groups.findIndex((g) => g.score === team.score);
+  if(pos === 0) return { leader: true, ahead: groups.length > 1 ? team.score - groups[1].score : null };
+  const next = pos > 1 ? groups[pos - 1] : null;
+  return { leader: false, toFirst: groups[0].score - team.score, first: groups[0], toNext: next ? next.score - team.score : null, next };
 }
+
+// While the scores are hidden: what the next tap of Next reveals, which is the lowest score not revealed
+// yet. Teams on the same score are revealed together. -> null if nothing is left to reveal, or
+//   { teams, place, who, label, left, last }
+//   place  "4th", "=2nd", or "the winner" ("the winners" for a tie)
+//   who    "Team Delta", "Team Beta & Team Gamma", or "Team Beta & 2 more"
+//   label  "Revealed 4th: Team Delta", which is the label for Undo, and what the phone sends to name
+//          the reveal it means
+//   left   how many taps of Next are left, this one included
+//   last   this tap is the last one: it shows the scores
+export function nextReveal(board){
+  if(!board.scoresHidden) return null;
+  const waiting = board.teams.filter((t) => !board.revealed.includes(t.id));
+  if(!waiting.length) return null;
+  const scores = [...new Set(waiting.map((t) => t.score))].sort((a, b) => a - b);
+  const teams = waiting.filter((t) => t.score === scores[0]);
+  const rank = board.teams.filter((t) => t.score > scores[0]).length + 1;
+  const tied = teams.length > 1;
+  const place = rank === 1 ? `the winner${tied ? 's' : ''}` : `${tied ? '=' : ''}${ordinal(rank)}`;
+  const who = !tied ? teams[0].name
+    : teams.length === 2 ? `${teams[0].name} & ${teams[1].name}`
+    : `${teams[0].name} & ${teams.length - 1} more`;
+  return { teams, place, who, label: `Revealed ${place}: ${who}`, left: scores.length, last: scores.length === 1 };
+}
+
+// Once the first place is revealed, nothing may change the standings until the reveal ends, or the order
+// on the TV would no longer be the true one. Undo (back to before the reveal) or Show now unlocks them.
+const REVEAL_LOCKS = new Set(['adjust-score', 'add-team', 'remove-team', 'reset-round']);
+export const isRevealing = (board) => board.revealed.length > 0;
+export const lockedByReveal = (board, action) => isRevealing(board) && REVEAL_LOCKS.has(action);
 
 // ---------------------------------------------------------------- changes
 
@@ -147,7 +169,7 @@ const RULES = {
   'add-team'(b, a){
     const name = cleanText(a.name, NAME_MAX);
     if(!name || b.teams.length >= MAX_TEAMS) return null;
-    b.teams.push({ id: newId(), name, color: freeColor(b.teams), score: 0, used: {} });
+    b.teams.push({ id: randomId(), name, color: freeColor(b.teams), score: 0, used: {} });
     return `Added ${name}`;
   },
 
@@ -177,7 +199,7 @@ const RULES = {
   'add-powerup'(b, a){
     const name = cleanText(a.name, NAME_MAX);
     if(!name || b.powerups.length >= MAX_POWERUPS) return null;
-    b.powerups.push({ id: newId(), name, icon: cleanIcon(a.icon) || DEFAULT_ICON });
+    b.powerups.push({ id: randomId(), name, icon: cleanIcon(a.icon) || DEFAULT_ICON });
     return `Added ${name}`;     // every team has it at once: "not in used" means available
   },
 
@@ -213,26 +235,36 @@ const RULES = {
   },
 
   'reset-round'(b){
-    for(const t of b.teams){ t.score = 0; t.used = {}; }
+    for(const t of b.teams){ t.score = 0; t.used = {}; }      // hidden scores stay hidden
     return 'Reset round';
   },
 
-  // Hiding scores for the final round. 'reveal-scores' and 'show-scores' change the board the same
-  // way; the TV plays the reveal (last place to first) only for 'reveal-scores'.
+  // Hiding the scores, then revealing them one place at a time, last place first. Each tap of Next is
+  // a change of its own, so Undo takes back one place. The last one shows the scores; 'show-scores'
+  // shows them all at once instead.
   'hide-scores'(b){
     if(b.scoresHidden) return null;
     b.scoresHidden = true;
+    b.revealed = [];
     return 'Scores hidden';
   },
   'show-scores'(b){
     if(!b.scoresHidden) return null;
     b.scoresHidden = false;
+    b.revealed = [];
     return 'Scores shown';
   },
-  'reveal-scores'(b){
+  // The phone names the reveal it showed the host. If the board has moved on since (another phone got
+  // in first, or a score changed before the reveal began), it does nothing, rather than reveal a place
+  // the host did not expect.
+  'reveal-next'(b, a){
     if(!b.scoresHidden) return null;
-    b.scoresHidden = false;
-    return 'Scores revealed';
+    const next = nextReveal(b);
+    const label = next ? next.label : 'Scores shown';     // no teams to reveal
+    if(typeof a.label === 'string' && a.label !== label) return null;
+    if(next && !next.last) b.revealed.push(...next.teams.map((t) => t.id));
+    else RULES['show-scores'](b);
+    return label;
   },
 };
 
@@ -241,7 +273,7 @@ export const RULE_NAMES = Object.keys(RULES);
 // -> { board, label } with a new board, or null if the command is not allowed or changes nothing.
 export function apply(board, action, arg){
   const rule = Object.hasOwn(RULES, action) ? RULES[action] : null;
-  if(!rule) return null;
+  if(!rule || lockedByReveal(board, action)) return null;
   const next = structuredClone(board);
   const label = rule(next, arg && typeof arg === 'object' ? arg : {});
   if(label === null || JSON.stringify(next) === JSON.stringify(board)) return null;

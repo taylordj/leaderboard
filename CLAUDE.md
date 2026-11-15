@@ -1,172 +1,137 @@
 # Quiz Scoreboard: notes for whoever changes the code
 
-A static live scoreboard. There is a **board** page (`index.html`, on the TV, landscape or portrait, any
-size) and a **phone remote** (`remote.html`, portrait) that the host runs everything from. They talk
-through public MQTT relays, plus a BroadcastChannel when both are open in the same browser.
-There is no build step, no npm and no framework: plain ES modules served by GitHub Pages. README.md
-explains how it is used. The design follows the sister project `beat-the-clock`.
+A static live scoreboard. The **board** (`index.html`) goes on the TV, and the **Quiz Admin Panel**
+(`remote.html`) runs on the host's phone. They talk through public MQTT relays, plus a BroadcastChannel when
+both are open in the same browser. There is no build step, no npm and no framework: plain ES modules served by
+GitHub Pages. The design follows the sister project `beat-the-clock`.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `index.html` | Board markup: the stage, the 📡 chip and the pairing dialog. |
-| `remote.html` | Phone remote markup: pairing card, the teams card, Undo/Setup bar, the team sheet and the Setup sheet. |
-| `css/base.css` | Shared colour tokens, fonts, buttons and inputs, plus the one reduced-motion rule. |
-| `css/display.css` | Board layout and every board animation. |
-| `css/remote.css` | Phone layout. The landscape fallback comes last on purpose, so it wins. |
-| `js/config.js` | Every tunable number and name: defaults, palette, limits, timings, relays, `ACTIONS`, `STORAGE` keys. |
-| `js/util.js` | Small shared helpers: `store`, ids and room codes, `escapeHtml`, `setText`, `signed`, `ordinal`, `restartAnimation`, `armConfirm`. |
-| `js/model.js` | **All scoreboard rules.** Pure data, no page: board shape, `sanitizeBoard`, standings (`ranked`, `rankInfo`, `gaps`), and `apply()` for every action. |
-| `js/display.js` | Board entry point: load and save, `perform()`, the undo stack, rendering rows (roll-up, flashes, reorder glide), hidden scores and the reveal (`playReveal`, confetti), one or two columns, `fitStage`. |
-| `js/display-remote.js` | The board's side of the remote (`start`/`stop`): pairing dialog and QR, running commands, publishing status, per-phone acks, the toast. |
-| `js/one-board.js` | Makes sure only one copy of the board in a browser has the remote; the others pause. |
-| `js/remote.js` | Phone entry point: connecting, sending, pending/confirmed taps, the team rows (`layoutTeams`), the team sheet, Setup (colour swatches, hide and reveal), checking the board is still there. |
-| `js/relay.js` | The link over several relays plus BroadcastChannel, message checks (`parseCommand`, `parseStatus`), reconnecting and wake lock. |
-| `vendor/` | Pinned third-party code: `mqtt.min.js` (MQTT.js 5.15.2) and `qrcode.js` (qrcode-generator 1.4.4). Do not edit. |
+| `index.html`, `css/display.css`, `js/display.js` | The board: rendering, `perform()`, Undo, hidden scores and the reveal, fitting the screen. |
+| `js/display-remote.js` | The board's side of the remote: pairing dialog and QR, running commands, publishing status. |
+| `js/one-board.js` | Only one copy of the board in a browser has the remote; the others pause. |
+| `remote.html`, `css/remote.css`, `js/remote.js` | The phone: team rows, the team sheet, Setup, pending and confirmed taps. |
+| `js/model.js` | **All scoreboard rules.** Pure data: board shape, `sanitizeBoard`, standings, `apply()`. |
+| `js/relay.js` | The link: several relays plus BroadcastChannel, message checks, reconnecting, wake lock. |
+| `js/config.js` | Every tunable number and name: defaults, palette, limits, timings, relays, `ACTIONS`, `STORAGE`. |
+| `js/util.js`, `css/base.css` | Shared helpers, colour tokens, buttons and inputs, the reduced-motion rule. |
+| `vendor/` | MQTT.js 5.15.2 and qrcode-generator 1.4.4. Do not edit. |
 | `tests/model.test.js` | Checks for model.js, the relay message checks and small helpers. |
 
 ## Rules to keep
 
-- **Board rules live only in `model.js`.** It must not touch the page, storage or network, so it stays
-  testable in Node. Boards are never changed in place: `apply()` returns a new one, which is what makes Undo
-  a simple stack of old boards.
-- **The board owns the state.** The board saves it to localStorage after every change. Phones only send
-  commands and draw whatever the board's status says. Every change goes through `perform(action, arg)` in
-  display.js, and nothing else may change `board`.
-- **Only one copy of the board has the remote** (one-board.js). Copies opened in the same browser share the
-  saved board and room code, so they agree over a BroadcastChannel which one listens:
-  - The copy already in charge keeps it. A newer copy pauses behind a full-screen notice.
-  - "Use this window instead" moves the remote across, and closing the active copy hands it to a paused one.
-  - Taking over reloads the saved board, and starts Undo afresh if the board changed meanwhile.
-  - Handing over stops the old copy's relays quietly (`relay.stop(false)`, a clean disconnect), so phones are
-    never told the board has gone.
+- **Rules live only in `model.js`**, which never touches the page, storage or network, so it can be tested in Node.
+  `apply()` returns a new board and never changes one in place, so Undo is just a stack of old boards.
+- **The board owns the state** and saves it to localStorage after every change. Every change goes through
+  `perform(action, arg)` in display.js. Phones only send commands and draw what the board's status says.
+- **Anything from the relays is untrusted.** relay.js checks every message (`parseCommand`, and `parseStatus`
+  runs the board through `sanitizeBoard`), and each rule in model.js checks its arguments again.
+  - Text that goes into `innerHTML` is passed through `escapeHtml`.
+  - Team colours come from `PALETTE` only.
+- **Every tap is accounted for, truthfully.**
+  - Score and powerup taps show at once as pending, and clear when the status's `acks[SESSION].seq` reaches
+    them.
+  - A tap the board has not confirmed after `CONFIRM_TIMEOUT_MS` is reported.
+  - `ok: false` in an ack means the board changed nothing, and the phone says so instead of ✓.
+- **Undo names what it undoes, and Next names what it reveals.** The phone sends the label it showed the host,
+  and the board refuses if its latest change (for Undo) or its next reveal (`nextReveal`, for Next) is a
+  different one. Next is also greyed out until the board confirms the last one, so a double tap reveals one
+  place.
+- **The board draws rows once per team, then only patches or moves them.** Recreating a row would replay its
+  entrance and break the reorder glide (FLIP), the score roll-up and the powerup flares.
+- **The board is laid out at a fixed size and scaled to fit** (`fitStage`).
+  - The stage is 1100px wide (2040px in two columns) and at least 720px tall. That minimum stops a few teams
+    being blown up to fill the screen.
+  - If you change the sizes of the title, card or rows, update the numbers in `chooseColumns`.
+  - There are no viewport units inside `#stage`.
+  - FLIP distances are divided by `fitScale`.
 - **While scores are hidden, nothing on the board may give the standings away.**
-  - Rows keep setup order and show "?" for rank and score, with no bars, gaps, leader glow or gain/loss flash.
-  - Powerups still show.
-  - Only `reveal-scores` plays the reveal (`show-scores` and Undo just redraw). During the reveal, `render()`
-    saves and publishes but draws nothing, and catches up when the reveal ends.
-- **Board rendering: rows are made once per team, then only patched or moved.** Recreating a row replays
-  its entrance and breaks the reorder glide (FLIP in `playReorder`), the score roll-up and the powerup
-  flares. Powerup badges are only touched when their used/available pattern changes (`syncBadges`).
-- **The board is laid out at a fixed size and scaled to fit** (`fitStage`), like beat-the-clock: a centred
-  title and one card holding the standings.
-  - The stage is 1100px wide (2040px in two columns, `chooseColumns`) and **at least 720px tall**. That
-    minimum is what keeps a short list of teams from being blown up to fill the screen.
-  - If you change the sizes of the title, card or rows, update the numbers in `chooseColumns` to match.
-  - Do not use viewport-based sizes inside `#stage`.
-  - FLIP distances are measured on screen, so they are divided by `fitScale`.
-- **Phone rendering:**
-  - Every team fits on one screen without scrolling.
-  - Each row has its own − / + for the **points per tap**. That is a setting of the phone (`STORAGE.step`,
-    default `DEFAULT_STEP`), changed in Setup, not part of the board.
-  - Tapping a team's name (marked with a gold ›) opens its sheet:
-    - + and − for `SHEET_AMOUNTS` (1, 2, 5, 10), plus the points per tap, which is outlined;
-    - a one-off custom amount;
-    - the team's powerups.
-  - `layoutTeams` shares the card's height between the rows and picks one of four layouts: roomy, line, tile
-    (two columns) or mini (two columns, buttons beside the name). Only a tiny screen with a great many teams
-    scrolls.
-  - The rows are laid out again on every render, so anything that changes the card's height (the hidden-scores
-    bar, a resize) is picked up.
-  - Team rows are only rebuilt when a team or powerup is added, removed, renamed or recoloured. A rebuild
-    during a tap swallows the tap.
-  - Rows keep setup order. They never re-sort by score.
-  - The phone matches the board's style (card panels), but its header always says "Quiz Admin Panel", in plain
-    gold with no shimmer. It never shows the quiz title, which only appears on the board and in Setup.
-  - Never overwrite a text box that has focus, or one whose change is not confirmed yet (`hold`/`isHeld`).
-  - Lists in Setup are not rebuilt while one of their boxes has focus; they catch up on `focusout`.
-- **Every tap is accounted for, truthfully.** Score and powerup taps go in `pending` and show at once. They
-  clear when the status's `acks[SESSION].seq` reaches their `seq`, and they are reported after
-  `CONFIRM_TIMEOUT_MS`. An ack with `ok: false` means the board handled the command but nothing changed
-  (refused, or already so), and the phone says "No change on the board" instead of ✓.
-- **Undo names what it undoes.** The phone sends the label it is showing, and `perform('undo')` refuses if
-  the latest change is a different one (another tap, or another phone, got there first).
-- **Anything from the relays is untrusted.** It is checked in relay.js (`parseCommand`, `parseStatus`, which
-  runs the board through `sanitizeBoard`) and again by each rule in model.js. Text that goes into `innerHTML`
-  is passed through `escapeHtml`. Team colours must come from `PALETTE`.
-- **Behaviours that are deliberate (keep them):**
-  - While every team is on the same score nobody is leading: no crown, no gap chips, rank shows "–".
-  - Tied teams share a rank (1st, 1st, 3rd), and gap chips never show "+0".
-  - Gap chips name who a team is chasing: "12 behind Team Beta (Leader)", then "3 behind Team Delta (2nd)"
-    for the team just above (left out when that is the leader).
-    - Several teams on that score show as "Team Beta +1 (=2nd)", and tied leaders as "(Leaders)".
-    - A long name is cut with "…", never the points or the place.
-  - The Undo history lives in the board's memory only (`UNDO_DEPTH`), so reloading the board clears it.
-  - A command that changes nothing (for example, giving back a powerup that is already available) is not an Undo step.
-  - New code, remove and Reset round all take two taps (`armConfirm`).
-  - The phone sends a quiet `hello` when it has not heard from the board for `PING_AFTER_MS`. A board that
-    is still open always answers, even from a background tab with slowed timers. No answer within
-    `GONE_AFTER_MS` means the board has gone.
-  - When the page is hidden, `animateNumber` (display.js) jumps straight to the new number, because hidden
-    pages get no animation frames.
-  - The pairing dialog closes itself only for a phone the board has not heard from before, so a connected
-    phone checking in never snatches the QR code away from someone about to scan it.
-  - "Open the remote on this device" opens a small window, not a tab, so the board stays on show.
+  - Rows keep setup order and show "?", with no bars, gaps, glow or flash.
+  - The reveal is part of the board: `revealed` lists the teams revealed so far, and each tap of Next is one
+    `reveal-next`, last place first, with tied teams together. Undo, a reload and every phone therefore agree on it.
+  - The TV draws the reveal from the board, not on a timer (`viewOf`: hidden, reveal, finale, scores). Part-way
+    through, rows are in their final order and the places still to come are identical empty slots (`.veiled`).
+    Bars, gaps and the leader's glow come only after the winner's moment.
+  - A row glides to a new place only when every team is in view before and after (`IN_VIEW`), because a hidden
+    team seen moving would give its place away. Before the first place, the rows empty where they are.
+  - Once the first place is revealed, the standings are locked until the reveal ends (`lockedByReveal`: scores,
+    adding or removing teams, Reset Round). The phone greys those controls out and marks each team already
+    revealed with a ✓, but always shows every score. Undo back to the start, or Show now, unlocks them.
+  - The reveal has two short moments (`REVEAL_FADE_MS`, `REVEAL_FINALE_MS`). During one, `render()` publishes
+    but draws nothing, and when it ends it draws the board as it is by then.
+- **Only one copy of the board has the remote.**
+  - The copy already in charge keeps it, and a newer one pauses.
+  - Handing over reloads the saved board, and stops the old copy's relays with a clean disconnect, so phones are
+    never told the board has gone.
+- **On the phone, every team fits on one screen.** `layoutTeams` shares the card's height between the rows
+  (roomy, line, tile or mini) and runs on every render.
+  - Rows keep setup order.
+  - Rows are rebuilt only when teams, names, colours or powerups change, because a rebuild during a tap
+    swallows it.
+  - A text box is never overwritten while it has focus, or while its change is unconfirmed (`hold`/`isHeld`).
+- **Points per tap is a setting of the phone** (`STORAGE.step`), not part of the board. It and the custom
+  amount are both read with `points()`.
+- **Deliberate behaviours:**
+  - While every team is on the same score nobody leads: no crown, no gap chips, and the place shows "–".
+  - Ties share a place.
+  - Gap chips read "12 behind Team Beta", with no place or "leader" wording, and the leader shows only "+4 ahead".
+  - Undo history is in memory only (`UNDO_DEPTH`).
+  - New code, remove, Reset Round and Show now all take two taps (`armConfirm`). Next takes one tap per place.
+  - A phone that hears nothing for `PING_AFTER_MS` sends a quiet `hello`. No answer within `GONE_AFTER_MS` means
+    the board has gone.
+  - A phone that wakes up reconnects through `connect()`, the same path as the first time, so it says hello
+    again. That hello is how a remote in the same browser gets the board's status, since BroadcastChannel
+    keeps no last message.
+  - The pairing dialog closes itself only for a phone the board has not heard from before.
+  - The phone's header says "Quiz Admin Panel", or "Quiz Admin" when the status beside it leaves too little
+    room (`fitTitle` measures it). It never shows the quiz title.
 
 ## Message protocol (relay.js)
 
-Topics are `danslb/1/<ROOM>/cmd` and `danslb/1/<ROOM>/status`. The same messages also travel on a
-BroadcastChannel named `danslb/1/<ROOM>`, which reaches pages in the same browser.
+Topics are `danslb/2/<ROOM>/cmd` and `danslb/2/<ROOM>/status`, and the same messages travel on the
+BroadcastChannel `danslb/2/<ROOM>`.
 
-- **Command** (phone → board): `{ v:1, from, seq, action, arg? }`.
-  - `from` is the phone's session id, and `seq` counts up.
-  - The board ignores repeats of the same `from:seq`, because each command arrives once per relay.
-  - `hello` changes nothing. It closes the pairing dialog and makes the board answer with a status.
-- **Status** (board → phone, retained): `{ v:1, online:true, at, board, undo, acks }`.
-  - `undo` is the label of what Undo would undo, or null.
-  - `acks` maps each phone's session id to `{ seq, ok }` for the latest `MAX_ACKS` phones. `seq` is the last
-    command handled from that phone, and `ok` says whether it changed the board.
-  - The last-will message is `{ v:1, online:false }`.
+- **Command** (phone → board): `{ v:2, from, seq, action, arg? }`. The board ignores a repeated `from:seq`,
+  because each command arrives once per relay. `hello` changes nothing; the board just answers it.
+- **Status** (board → phone, retained): `{ v:2, online:true, at, board, undo, acks }`.
+  - `undo` is the label of what Undo would undo.
+  - `acks` gives each recent phone `{ seq, ok }`.
+  - The last will is `{ v:2, online:false }`.
 - **Arguments:**
-  - `adjust-score` takes `{team, amount}`.
-  - `set-powerup` takes `{team, powerup, used}`.
-  - `add-team` takes `{name}`. `rename-team` takes `{team, name}`.
-  - `set-team-color` takes `{team, color}`. `remove-team` takes `{team}`.
-  - `add-powerup` takes `{name, icon}`. `edit-powerup` takes `{powerup, name?, icon?}`.
-  - `remove-powerup` takes `{powerup}`. `set-title` takes `{title}`.
-  - `undo` takes `{label}`: the change it means to undo.
-  - `reset-round`, `hide-scores`, `show-scores`, `reveal-scores` and `hello` take nothing.
-- **Changing the shape of a message:** bump `PROTOCOL_VERSION` and `TOPIC_ROOT` in config.js together, and
-  update `parseCommand`/`parseStatus`.
+  - `adjust-score {team, amount}`, `set-powerup {team, powerup, used}`
+  - `add-team {name}`, `rename-team {team, name}`, `set-team-color {team, color}`, `remove-team {team}`
+  - `add-powerup {name, icon}`, `edit-powerup {powerup, name?, icon?}`, `remove-powerup {powerup}`
+  - `set-title {title}`, `undo {label}`, `reveal-next {label}`
+  - The rest take nothing.
+- To change a message's shape, bump `PROTOCOL_VERSION` and `TOPIC_ROOT` together, and update
+  `parseCommand`/`parseStatus`.
 
 ## How to…
 
-**Add a board action** (something the host can do):
-1. Add a rule to `RULES` in model.js. It changes the copy it is given and returns a short label for Undo, or
-   returns null if the command makes no sense.
-2. Add its name to `ACTIONS` in config.js. That also whitelists it for the relay. The test "every action is
-   either a board rule or handled by the TV" checks the two lists match.
-3. Add the control to remote.html and send it from remote.js with `send(action, arg, { label })`.
-4. Add tests in tests/model.test.js.
+**Add a board action:**
+1. Add a rule to `RULES` in model.js. It changes the copy it is given and returns a label for Undo, or null.
+2. Add the action's name to `ACTIONS` in config.js. A test checks the two lists match.
+3. Send it from remote.js with `send(action, arg, { label })`.
+4. Add a test.
 
-**Change limits, timings, defaults or the palette:** edit config.js. For colours, edit the tokens at the top
-of base.css.
+**Change limits, timings or defaults:** config.js. **Colours:** the tokens at the top of base.css.
 
-**Change the look of the board:** edit display.css.
-- Keep idle motion slow and faint, so that score changes, reorders and powerup flares stand out.
-- Today the idle motion is the background drift, the leader's glow, the title shimmer (12 s), the leader's
-  row sheen (7 s) and a glint on the bars (5.5 s).
+**Change the look of the board:** display.css. Keep idle motion slow and faint: the background drift, the
+leader's glow and sheen, the title shimmer and the bar glint. That way score changes, reorders and powerup
+flares stand out.
 
 ## Checking a change
 
-1. Run `node tests/model.test.js`, or open <http://localhost:8000/tests/model.test.html>. Everything must pass.
-2. Start a server in the project folder with `python -m http.server 8000`, because modules do not load from
-   `file://`. Open <http://localhost:8000/> (the board) and, from its 📡 dialog, the remote link in a
+1. Run `node tests/model.test.js` (or open `tests/model.test.html`). Everything must pass.
+2. Run `python -m http.server 8000`, open <http://localhost:8000/>, and open the remote from its 📡 dialog in a
    phone-sized window. Check:
-   - The pairing dialog opens on a first visit and closes itself when the phone connects.
-   - −1/+1 on a row, then −5/+5 and a custom amount in the team sheet: the board rolls up, flashes and
-     reorders. The phone's score turns gold until the board confirms it, then the feedback line shows *✓*.
-   - Powerups (in the team sheet): the flare and strike on the board match the chips on the phone.
-   - Every team fits on the phone without scrolling, with 2, 8, 12 and 20 teams, on a large and a small phone.
-   - Setup: a colour swatch changes the team's colour. Reveal ▶ and Show now each take two taps.
-   - Undo after a score, a powerup, a removed team and a reset round.
-   - Setup edits appear on the board, and a box you are typing in is never overwritten.
-   - Reload the board: everything is still there. Close the board: the phone greys out within about 15 s.
-   - Hide scores, change a score (no flash, still "?"), reload (still hidden), then Reveal: last place first,
-     the winner last with confetti. Undo hides them again.
-   - Open the board in a second window: it pauses. "Use this window instead" swaps them. Closing the active
-     copy hands the remote back.
-   - Resize the board window, including portrait and with 2 and 20 teams: no scrollbars, and every team visible.
-3. Open the remote in a different browser too, so the commands have to go through the relays rather than
-   the same-browser link.
+   - Scoring from the rows and from the team sheet, powerups, and Undo.
+   - Setup edits, colour swatches, and points per tap.
+   - Hide scores, then Next for each place: last place first, the winner last with confetti. Undo hides one
+     place again, and a reload part-way keeps the places revealed so far.
+   - Every team fits on the phone with 2, 8, 12 and 20 teams. The board fits portrait and landscape windows.
+   - Reload the board: nothing is lost. Close it: the phone greys out within about 15 s. A second copy of the
+     board pauses.
+3. Try the remote in a different browser too, so commands go through the relays.

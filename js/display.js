@@ -8,17 +8,15 @@
 // Rendering rule: rows are created once per team and then only patched or moved. Recreating them
 // would replay the entrance animation and lose the reorder glide, the score roll-up and the
 // powerup flares.
-import {
-  STORAGE, UNDO_DEPTH, PALETTE, REVEAL_STEP_MS, REVEAL_QUICK_MS, REVEAL_PODIUM_MS, REVEAL_WINNER_MS,
-} from './config.js';
-import { $, store, clamp, escapeHtml, ordinal, setText, restartAnimation } from './util.js';
+import { STORAGE, UNDO_DEPTH, PALETTE, REVEAL_FADE_MS, REVEAL_FINALE_MS } from './config.js';
+import { $, store, clamp, escapeHtml, setText, restartAnimation } from './util.js';
 import * as model from './model.js';
 import { initDisplayRemote } from './display-remote.js';
 import { oneBoard } from './one-board.js';
 
 let board = model.sanitizeBoard(store.getJSON(STORAGE.board)) ?? model.defaultBoard();
 const undoStack = [];    // [{ board, label }], newest last: the board as it was before each change
-let revealing = false;   // while the reveal plays, changes are saved and sent to phones but drawn afterwards
+let finale = false;      // the reveal has just ended: the winner's moment is drawn before the standings
 
 // ================================================================ the one way in
 
@@ -38,7 +36,8 @@ function perform(action, arg){
     board = result.board;
   }
   store.setJSON(STORAGE.board, board);
-  if(action === 'reveal-scores') playReveal(); else render();
+  finale = action === 'reveal-next' && !board.scoresHidden;
+  render();
   return true;
 }
 
@@ -51,22 +50,55 @@ const remote = initDisplayRemote({ perform, getStatus: statusForPhone });
 
 const boardEl = $('board');
 const MEDALS = { 1: '👑', 2: '🥈', 3: '🥉' };
-const rowOf = (teamId) => [...boardEl.children].find((row) => row.dataset.team === teamId);
+
+// How the board is drawn, which follows from the board itself:
+//   'hidden'   the scores are hidden: setup order, and "?" for every place and score
+//   'reveal'   part-way through the reveal: the final order, with the places still to come as empty slots
+//   'finale'   the reveal has just ended: every place and score, but no bars, gaps or glow for a moment
+//   'scores'   the standings
+// `drawn` is the one on screen, or 'emptied' while the "?" rows empty before the first place of a reveal.
+// Because the reveal is drawn from the board, Undo, a reload or a second phone all leave the TV showing
+// exactly the places revealed so far.
+let drawn = null;
+let moment = 0;          // while a moment of the reveal plays, changes are saved and sent but drawn when it ends
+const viewOf = (b) => (b.scoresHidden ? (b.revealed.length ? 'reveal' : 'hidden') : finale ? 'finale' : 'scores');
 
 function render(){
   remote.publishStatus();
-  if(revealing) return;                // drawn when the reveal ends
+  if(moment) return;
+  const view = viewOf(board);
   document.title = board.title || 'Scoreboard';
   setText($('title'), board.title);
-  $('tagline').hidden = !board.scoresHidden;
-  setText($('boardLabel'), board.scoresHidden ? 'Teams' : 'Standings');
-  renderBoard();
+  $('tagline').hidden = view === 'scores';    // stays through the winner's moment, so the board does not resize then
+  setText($('hiddenChip'), view === 'hidden' ? '🙈 Scores hidden until the reveal' : '🥁 Revealing the scores');
+  setText($('boardLabel'), view === 'hidden' ? 'Teams' : 'Standings');
+
+  if(drawn === 'hidden' && (view === 'reveal' || view === 'finale')){
+    // The first place of a reveal: the rows empty first, so no team is seen moving to its place.
+    boardEl.classList.add('revealing');
+    for(const row of boardEl.children) row.classList.add('veiled');
+    drawn = 'emptied';
+    playMoment(REVEAL_FADE_MS);
+    return;
+  }
+  renderBoard(view);
+  drawn = view;
+  if(view === 'finale'){ finale = false; playMoment(REVEAL_FINALE_MS); }
   scheduleFit();
 }
 
-function renderBoard(){
+// Nothing more is drawn until the moment ends, and then the board as it is by then.
+function playMoment(ms){
+  moment = setTimeout(() => { moment = 0; render(); }, ms);
+}
+
+// Views in which every team can be seen. Rows glide to a new place only from one of these to another:
+// a hidden team seen moving would give its place away.
+const IN_VIEW = new Set(['hidden', 'finale', 'scores']);
+
+function renderBoard(view){
   // While the scores are hidden the rows keep their setup order, which gives nothing away.
-  const teams = board.scoresHidden ? board.teams : model.ranked(board);
+  const teams = view === 'hidden' ? board.teams : model.ranked(board);
   const info = model.rankInfo(teams);
   const maxScore = Math.max(1, ...teams.map((t) => t.score));
   // which powerups there are, so the badges are rebuilt (without flares) when one is added, removed or edited
@@ -74,7 +106,8 @@ function renderBoard(){
 
   $('emptyNote').hidden = teams.length > 0;
   boardEl.classList.toggle('many-powerups', board.powerups.length > 5);
-  boardEl.classList.toggle('scores-hidden', board.scoresHidden);
+  boardEl.classList.toggle('scores-hidden', view === 'hidden');
+  boardEl.classList.toggle('revealing', view === 'reveal' || view === 'finale');
 
   // where every row is now (before any is removed), so the ones that move can glide to their new place
   const firstPaint = boardEl.children.length === 0;
@@ -87,6 +120,7 @@ function renderBoard(){
     if(!teams.some((t) => t.id === id)) row.remove();
   }
 
+  let crowned = false;
   teams.forEach((team, i) => {
     let row = before.get(team.id)?.row;
     if(!row){
@@ -94,11 +128,17 @@ function renderBoard(){
       if(firstPaint) row.style.animationDelay = `${i * 0.05}s`;
     }
     placeRow(row, i);
-    patchRow(row, team, info, maxScore, powerKey);
+    const revealed = patchRow(row, team, info, maxScore, powerKey, view);
+    // the winner's moment: a gold pulse, and confetti
+    if(revealed && view === 'finale' && !info.allLevel && info.rankOf[team.id] === 1){
+      playOnce(row, 'fx-crowned', 1800, []);
+      crowned = true;
+    }
   });
+  if(crowned) confetti();
 
-  // a switch between one and two columns moves every row: that is not a change in the standings
-  if(!applyColumns()) playReorder(before);
+  // A switch between one and two columns moves every row: that is not a change in the standings.
+  if(!applyColumns() && IN_VIEW.has(drawn) && IN_VIEW.has(view)) playReorder(before);
 }
 
 function placeRow(row, i){
@@ -119,15 +159,20 @@ function createRow(team){
   return row;
 }
 
-function patchRow(row, team, info, maxScore, powerKey){
+// -> true if the row has just been revealed
+function patchRow(row, team, info, maxScore, powerKey, view){
   setText(row.querySelector('.row-name'), team.name);
   const fill = row.querySelector('.bar-fill');
   fill.style.backgroundColor = team.color;
   syncBadges(row.querySelector('.badges'), team, powerKey);
   const scoreEl = row.querySelector('.score');
+  const veiled = view === 'reveal' && !board.revealed.includes(team.id);
+  const revealed = row.classList.contains('veiled') && !veiled;
+  row.classList.toggle('veiled', veiled);
 
-  // Hidden: no rank, bar, gaps, score or flash, so nothing on the row gives the standings away.
-  if(board.scoresHidden){
+  // Hidden, or not revealed yet: no rank, bar, gaps, score or flash, so nothing on the row gives the
+  // standings away.
+  if(view === 'hidden' || veiled){
     row.classList.remove('is-leader');
     setRank(row, '?');
     fill.style.width = '0%';
@@ -135,28 +180,38 @@ function patchRow(row, team, info, maxScore, powerKey){
     stopCount(scoreEl);
     setText(scoreEl, '?');
     row._score = team.score;
-    return;
+    return false;
   }
 
-  // before the first point everybody is level, so nobody gets a crown
-  const rank = info.rankOf[team.id];
-  row.classList.toggle('is-leader', !info.allLevel && rank === 1);
-  setRank(row, info.allLevel ? '–' : MEDALS[rank] ?? String(rank));
-  fill.style.width = `${barPct(team.score, maxScore)}%`;
-  setGaps(row, gapChipsHtml(team, info));
+  // Part-way through the reveal, and in the winner's moment, the places and scores show, but the bars,
+  // the gaps and the leader's glow wait for the end, because they would give the order away.
+  const standings = view === 'scores';
+  row.classList.toggle('is-leader', standings && !info.allLevel && info.rankOf[team.id] === 1);
+  setRank(row, placeText(team, info));
+  fill.style.width = standings ? `${barPct(team.score, maxScore)}%` : '0%';
+  setGaps(row, standings ? gapChipsHtml(team, info) : '');
 
-  // points won: a confident pulse and a green wash. Points lost: a rattle and a red wash.
   const prev = row._score;
-  if(prev !== team.score){
+  row._score = team.score;
+  if(revealed){
+    animateNumber(scoreEl, 0, team.score);        // a revealed score counts up from 0
+  } else if(prev !== team.score){
+    // points won: a confident pulse and a green wash. Points lost: a rattle and a red wash.
     animateNumber(scoreEl, prev, team.score);
     restartAnimation(scoreEl, 'pop');
     playOnce(row, team.score > prev ? 'fx-gain' : 'fx-loss', 1000, ['fx-gain', 'fx-loss']);
-    row._score = team.score;
   } else if(scoreEl.textContent === '?'){
-    scoreEl.textContent = String(team.score);     // shown again without a reveal
+    scoreEl.textContent = String(team.score);     // shown straight away (Show now), or after a reload
   }
+  return revealed;
 }
 
+// 👑, 🥈 or 🥉 for the podium, the number below it, and "–" before the first point, when everyone is
+// level and nobody gets a crown.
+function placeText(team, info){
+  const rank = info.rankOf[team.id];
+  return info.allLevel ? '–' : MEDALS[rank] ?? String(rank);
+}
 function setRank(row, text){
   const el = row.querySelector('.rank');
   el.classList.toggle('medal', Object.values(MEDALS).includes(text));
@@ -171,24 +226,19 @@ function barPct(score, maxScore){
   return clamp((Math.max(score, 0) / maxScore) * 100, score > 0 ? 3 : 0, 100);
 }
 
-// Leader: "Leader" (or "Tied 1st") and how far clear. Everyone else: who they are chasing and by how
-// much, as "12 behind Team Beta (Leader)", then "3 behind Team Delta (2nd)" for the team just above
-// when that is not the leader anyway. Nothing at all while everyone is level.
+// The leader: how far clear ("+4 ahead"). Everyone else: who they are chasing and by how much, as
+// "12 behind Team Beta" for the leader, then "3 behind Team Delta" for the team just above when that
+// is not the leader anyway. Nothing at all while everyone is level.
 function gapChipsHtml(team, info){
   if(info.allLevel) return '';
   const g = model.gaps(team, info);
-  if(g.leader){
-    return `<span class="gap-chip lead">${info.tiedAtTop > 1 ? 'Tied 1st' : 'Leader'}</span>`
-      + (g.ahead !== null ? `<span class="gap-chip sub">+${g.ahead} ahead</span>` : '');
-  }
-  return behindChip(g.toFirst, g.first, info.tiedAtTop > 1 ? 'Leaders' : 'Leader', '')
-    + (g.next ? behindChip(g.toNext, g.next, `${g.next.teams.length > 1 ? '=' : ''}${ordinal(g.next.rank)}`, ' sub') : '');
+  if(g.leader) return g.ahead !== null ? `<span class="gap-chip lead">+${g.ahead} ahead</span>` : '';
+  return behindChip(g.toFirst, g.first, '') + (g.next ? behindChip(g.toNext, g.next, ' sub') : '');
 }
-// Several teams on the score just above: the first is named, with how many more ("Team Beta +1").
-function behindChip(points, group, place, cls){
+// Several teams on that score: the first is named, with how many more ("Team Beta +1").
+function behindChip(points, group, cls){
   const who = group.teams[0].name + (group.teams.length > 1 ? ` +${group.teams.length - 1}` : '');
-  return `<span class="gap-chip behind${cls}"><b>${points}</b>&nbsp;behind&nbsp;`
-    + `<span class="gap-who">${escapeHtml(who)}</span>&nbsp;(${place})</span>`;
+  return `<span class="gap-chip behind${cls}"><b>${points}</b>&nbsp;behind&nbsp;<span class="gap-who">${escapeHtml(who)}</span></span>`;
 }
 
 // A team's powerup strip. Does nothing unless something changed, and then only the badges that
@@ -277,61 +327,8 @@ function playReorder(before){
   });
 }
 
-// ================================================================ the reveal
-
-// The final reveal, after the scores were hidden. The rows fade out, take their final order out of
-// sight, then come back from last place up, each score counting up from 0, with longer pauses for
-// the podium and confetti for the winner. The bars, the gaps and the leader's glow come last, because
-// they would give the order away. Teams on the same score appear together.
-async function playReveal(){
-  revealing = true;
-  remote.publishStatus();
-  $('tagline').hidden = true;
-  setText($('boardLabel'), 'Standings');
-  boardEl.classList.remove('scores-hidden');
-  boardEl.classList.add('revealing');
-  for(const row of boardEl.children) row.classList.add('veiled');
-  await sleep(650);
-
-  const teams = model.ranked(board);
-  const info = model.rankInfo(teams);
-  teams.forEach((team, i) => {
-    const row = rowOf(team.id) ?? createRow(team);
-    placeRow(row, i);
-    row.classList.add('veiled');
-    row.classList.remove('is-leader');
-    const rank = info.rankOf[team.id];
-    setRank(row, info.allLevel ? '–' : MEDALS[rank] ?? String(rank));
-    setText(row.querySelector('.score'), '0');
-  });
-  applyColumns();
-  fitStage();
-
-  const ranks = [...new Set(teams.map((t) => info.rankOf[t.id]))].sort((a, b) => b - a);
-  for(const rank of ranks){
-    await sleep(rank === 1 ? REVEAL_WINNER_MS : rank <= 3 ? REVEAL_PODIUM_MS : ranks.length > 8 ? REVEAL_QUICK_MS : REVEAL_STEP_MS);
-    if(board.scoresHidden) break;      // undone part-way: the scores go back into hiding
-    for(const team of teams.filter((t) => info.rankOf[t.id] === rank)){
-      const row = rowOf(team.id);
-      if(!row) continue;
-      row.classList.remove('veiled');
-      animateNumber(row.querySelector('.score'), 0, team.score);
-      row._score = team.score;
-      if(rank === 1 && !info.allLevel) playOnce(row, 'fx-crowned', 1800, []);
-    }
-    if(rank === 1 && !info.allLevel) confetti();
-  }
-  if(!board.scoresHidden) await sleep(1400);
-
-  revealing = false;
-  boardEl.classList.remove('revealing');
-  render();                            // bars, gaps and the leader's glow, and anything that changed meanwhile
-  for(const row of boardEl.children) row.classList.remove('veiled');
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 // Confetti over the whole screen for the winner (none for anyone who asks their device for less motion).
+// Each piece removes itself when it has fallen, so one burst never cuts another short.
 function confetti(){
   if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const layer = $('confetti');
@@ -344,13 +341,12 @@ function confetti(){
       piece.style.cssText = `left:${Math.random() * 100}%; width:${size}px; height:${size * 1.4}px;`
         + ` background:${colours[i % colours.length]}; --drift:${Math.random() * 160 - 80}px;`
         + ` animation-duration:${2.4 + Math.random() * 2.4}s; animation-delay:${Math.random() * 1.4}s;`;
+      piece.addEventListener('animationend', () => piece.remove());
       layer.append(piece);
     }
   };
-  layer.replaceChildren();
   wave();
   setTimeout(wave, 650);
-  setTimeout(() => layer.replaceChildren(), 6500);
 }
 
 // ================================================================ fitting the screen
@@ -364,7 +360,7 @@ function chooseColumns(){
   const n = board.teams.length;
   if(n < 6) return 1;
   const app = $('app');
-  const head = 86 + (board.scoresHidden ? 44 : 0);
+  const head = 86 + ($('tagline').hidden ? 0 : 44);
   const height = (rows) => Math.max(720, head + 68 + rows * 72);
   const one = Math.min(app.clientWidth / 1100, app.clientHeight / height(n));
   const two = Math.min(app.clientWidth / 2040, app.clientHeight / height(Math.ceil(n / 2)));

@@ -27,11 +27,9 @@ export const ICON_MAX = 8;               // characters; most emoji are 1 or 2
 export const MAX_ADJUST = 1000;          // the most one score change can add or take away
 export const MAX_SCORE = 99999;          // scores stay between -MAX_SCORE and MAX_SCORE
 
-// ---- the reveal (scores hidden for the final round, then shown from last place to first) ----
-export const REVEAL_STEP_MS = 1300;      // pause before each place below 3rd
-export const REVEAL_QUICK_MS = 650;      // the same, when there are more than 8 places to get through
-export const REVEAL_PODIUM_MS = 2200;    // pause before 3rd, and before 2nd
-export const REVEAL_WINNER_MS = 3200;    // pause before the winner
+// ---- the reveal (scores hidden, then shown from last place to first, one tap of Next at a time) ----
+export const REVEAL_FADE_MS = 650;       // the "?" rows fade out before the first place appears
+export const REVEAL_FINALE_MS = 1400;    // the winner's moment, before the bars, gaps and glow come in
 
 // ---- the phone ----
 export const DEFAULT_STEP = 1;           // points per tap on each team's − / + buttons (changed in Setup)
@@ -46,8 +44,8 @@ export const RELAYS = [
   'wss://broker.hivemq.com:8884/mqtt',
   'wss://test.mosquitto.org:8081',
 ];
-export const PROTOCOL_VERSION = 1;       // bump this and TOPIC_ROOT together when messages change shape
-export const TOPIC_ROOT = 'danslb/1/';
+export const PROTOCOL_VERSION = 2;       // bump this and TOPIC_ROOT together when messages change shape
+export const TOPIC_ROOT = 'danslb/2/';
 export const HEARTBEAT_MS = 8000;        // the TV re-announces itself this often
 // The phone checks the board is still there: after this long without hearing from it, the phone asks
 // (a 'hello', which the board always answers), and if no answer comes within GONE_AFTER_MS it treats
@@ -66,7 +64,7 @@ export const ACTIONS = [
   'add-team', 'rename-team', 'set-team-color', 'remove-team',
   'add-powerup', 'edit-powerup', 'remove-powerup',
   'set-title', 'reset-round',
-  'hide-scores', 'show-scores', 'reveal-scores',
+  'hide-scores', 'show-scores', 'reveal-next',
 ];
 
 // ---- saved on the device (localStorage) ----

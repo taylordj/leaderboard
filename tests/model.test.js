@@ -5,7 +5,7 @@
 import * as model from '../js/model.js';
 import { parseCommand, parseStatus } from '../js/relay.js';
 import { ordinal, signed } from '../js/util.js';
-import { ACTIONS, MAX_TEAMS, MAX_POWERUPS, NAME_MAX, MAX_ADJUST, MAX_SCORE, PALETTE, DEFAULT_ICON } from '../js/config.js';
+import { ACTIONS, PROTOCOL_VERSION, MAX_TEAMS, MAX_POWERUPS, NAME_MAX, MAX_ADJUST, MAX_SCORE, PALETTE, DEFAULT_ICON } from '../js/config.js';
 
 const results = [];
 function test(name, fn){
@@ -24,6 +24,8 @@ function board(scores = [0, 0, 0]){
     title: 'Test Quiz',
     powerups: [{ id: 'j', name: 'Joker', icon: '🃏' }, { id: 'g', name: 'Gamble', icon: '🎰' }],
     teams: scores.map((score, i) => ({ id: 'abc'[i], name: `Team ${'ABC'[i]}`, color: PALETTE[i], score, used: {} })),
+    scoresHidden: false,
+    revealed: [],
   };
 }
 // apply() and expect it to work
@@ -52,8 +54,8 @@ test('tied teams share a rank and the next rank is skipped', () => {
   const b = board([10, 10, 4]);
   const info = model.rankInfo(model.ranked(b));
   eq(info.rankOf, { a: 1, b: 1, c: 3 }, 'ranks');
-  eq(info.distinct, [10, 4], 'distinct scores');
-  eq(info.tiedAtTop, 2, 'tied at the top');
+  eq(info.groups.map((g) => g.score), [10, 4], 'each score once');
+  eq(info.groups[0].teams.map((t) => t.id), ['a', 'b'], 'both on the top score');
   eq(info.allLevel, false, 'not all level');
 });
 
@@ -69,26 +71,26 @@ test('gaps: the leader is ahead of the next score', () => {
   eq(model.gaps(team(b, 'a'), info), { leader: true, ahead: 3 }, 'leader');
 });
 
-// the parts of gaps() the board shows: points, who, and their place
+// the parts of gaps() the board shows: points, and who
 const gapSummary = (g) => g.leader ? g : {
   toFirst: g.toFirst, first: g.first.teams.map((t) => t.name),
-  toNext: g.toNext, next: g.next && { names: g.next.teams.map((t) => t.name), rank: g.next.rank },
+  toNext: g.toNext, next: g.next && g.next.teams.map((t) => t.name),
 };
 
 test('gaps: second place only shows the gap to 1st', () => {
   const b = board([12, 9, 2]);
   const info = model.rankInfo(b.teams);
   eq(gapSummary(model.gaps(team(b, 'b'), info)), { toFirst: 3, first: ['Team A'], toNext: null, next: null }, 'second');
-  eq(gapSummary(model.gaps(team(b, 'c'), info)), { toFirst: 10, first: ['Team A'], toNext: 7, next: { names: ['Team B'], rank: 2 } }, 'third');
+  eq(gapSummary(model.gaps(team(b, 'c'), info)), { toFirst: 10, first: ['Team A'], toNext: 7, next: ['Team B'] }, 'third');
 });
 
-test('gaps name everyone on the score just above, and their shared place', () => {
+test('gaps name everyone on the score just above', () => {
   const b = board([12, 12, 5]);
   const info = model.rankInfo(model.ranked(b));
   eq(gapSummary(model.gaps(team(b, 'c'), info)).first, ['Team A', 'Team B'], 'joint leaders');
   const four = { ...board(), teams: [...board([20, 9, 9]).teams, { id: 'd', name: 'Team D', color: PALETTE[3], score: 4, used: {} }] };
   const g = gapSummary(model.gaps(four.teams[3], model.rankInfo(model.ranked(four))));
-  eq(g.next, { names: ['Team B', 'Team C'], rank: 2 }, 'tied for 2nd just above');
+  eq(g.next, ['Team B', 'Team C'], 'tied just above');
   eq(g.toNext, 5, 'gap to them');
 });
 
@@ -224,23 +226,84 @@ test('reset-round zeroes every score and gives every powerup back, keeping the t
   eq(model.apply(board(), 'reset-round'), null, 'nothing to reset');
 });
 
-test('scores can be hidden, then shown or revealed', () => {
+test('scores can be hidden, then shown all at once', () => {
   eq(model.defaultBoard().scoresHidden, false, 'shown on a new board');
   const hidden = must(board([3, 1, 2]), 'hide-scores');
   eq([hidden.board.scoresHidden, hidden.label], [true, 'Scores hidden'], 'hidden');
   eq(model.apply(hidden.board, 'hide-scores'), null, 'hiding twice changes nothing');
-  const shown = must(hidden.board, 'reveal-scores');
-  eq([shown.board.scoresHidden, shown.label], [false, 'Scores revealed'], 'revealed');
-  eq(must(hidden.board, 'show-scores').label, 'Scores shown', 'shown without a reveal');
-  eq(model.apply(board(), 'reveal-scores'), null, 'nothing to reveal');
+  const part = must(hidden.board, 'reveal-next').board;
+  const shown = must(part, 'show-scores');
+  eq([shown.board.scoresHidden, shown.board.revealed, shown.label], [false, [], 'Scores shown'], 'shown part-way through a reveal');
+  eq(model.apply(board(), 'show-scores'), null, 'already shown');
   eq(must(hidden.board, 'adjust-score', { team: 'a', amount: 2 }).board.scoresHidden, true, 'scoring keeps them hidden');
-  eq(must(hidden.board, 'reset-round').board.scoresHidden, true, 'so does a reset');
+  eq(must(hidden.board, 'reset-round').board.scoresHidden, true, 'a reset keeps them hidden');
 });
 
-test('sanitizeBoard keeps scoresHidden only when it is really true', () => {
+// scores 3, 1, 2: B is last, then C, then A wins
+test('Next reveals one place at a time from last place, and the last one shows the scores', () => {
+  let b = must(board([3, 1, 2]), 'hide-scores').board;
+  const first = model.nextReveal(b);
+  eq([first.teams.map((t) => t.id), first.place, first.who, first.left, first.last], [['b'], '3rd', 'Team B', 3, false], 'last place first');
+  let r = must(b, 'reveal-next');
+  eq([r.label, r.board.revealed, r.board.scoresHidden], ['Revealed 3rd: Team B', ['b'], true], 'one place');
+  b = r.board;
+  eq(model.nextReveal(b).place, '2nd', 'then the next one up');
+  b = must(b, 'reveal-next').board;
+  const last = model.nextReveal(b);
+  eq([last.place, last.who, last.left, last.last], ['the winner', 'Team A', 1, true], 'the winner last');
+  r = must(b, 'reveal-next');
+  eq([r.label, r.board.scoresHidden, r.board.revealed], ['Revealed the winner: Team A', false, []], 'which shows the scores');
+  eq(model.nextReveal(r.board), null, 'nothing more to reveal');
+  eq(model.apply(r.board, 'reveal-next'), null, 'Next does nothing once the scores are shown');
+});
+
+test('teams on the same score are revealed together', () => {
+  const b = must(board([5, 2, 2]), 'hide-scores').board;
+  const tie = model.nextReveal(b);
+  eq([tie.teams.map((t) => t.id), tie.place, tie.who], [['b', 'c'], '=2nd', 'Team B & Team C'], 'tied for 2nd');
+  eq(must(b, 'reveal-next').board.revealed, ['b', 'c'], 'both at once');
+  const level = model.nextReveal(must(board([0, 0, 0]), 'hide-scores').board);
+  eq([level.place, level.who, level.last], ['the winners', 'Team A & 2 more', true], 'everyone level: one tap shows them all');
+});
+
+test('Next names the reveal it means, and is refused if the board has moved on', () => {
+  const b = must(board([3, 1, 2]), 'hide-scores').board;
+  eq(must(b, 'reveal-next', { label: 'Revealed 3rd: Team B' }).board.revealed, ['b'], 'the reveal the host saw');
+  eq(model.apply(b, 'reveal-next', { label: 'Revealed 2nd: Team C' }), null, 'another phone got in first');
+  const changed = must(b, 'adjust-score', { team: 'b', amount: 5 }).board;
+  eq(model.apply(changed, 'reveal-next', { label: 'Revealed 3rd: Team B' }), null, 'a score changed meanwhile');
+});
+
+test('once the reveal has begun, nothing may change the standings', () => {
+  const hidden = must(board([3, 1, 2]), 'hide-scores').board;
+  eq(must(hidden, 'adjust-score', { team: 'a', amount: 1 }).board.teams[0].score, 4, 'scoring is fine while hidden, before the reveal');
+  const b = must(hidden, 'reveal-next').board;
+  eq(model.isRevealing(b), true, 'revealing');
+  for(const [action, arg] of [['adjust-score', { team: 'a', amount: 1 }], ['add-team', { name: 'Late' }], ['remove-team', { team: 'a' }], ['reset-round']]){
+    eq(model.apply(b, action, arg), null, `${action} is locked`);
+  }
+  eq(must(b, 'rename-team', { team: 'a', name: 'Aces' }).board.teams[0].name, 'Aces', 'a name can still be fixed');
+  eq(must(b, 'set-powerup', { team: 'a', powerup: 'j', used: true }).board.teams[0].used, { j: true }, 'so can a powerup');
+  const shown = must(b, 'show-scores').board;
+  eq(must(shown, 'adjust-score', { team: 'a', amount: 1 }).board.teams[0].score, 4, 'Show now unlocks them');
+});
+
+test('with no teams, Next simply shows the scores', () => {
+  const b = must({ ...board(), teams: [] }, 'hide-scores').board;
+  eq(model.nextReveal(b), null, 'nothing to reveal');
+  const r = must(b, 'reveal-next', { label: 'Scores shown' });
+  eq([r.label, r.board.scoresHidden], ['Scores shown', false], 'shown');
+});
+
+test('sanitizeBoard keeps scoresHidden only when it is really true, and revealed only while hidden', () => {
   eq(model.sanitizeBoard({ ...board(), scoresHidden: true }).scoresHidden, true, 'true');
   eq(model.sanitizeBoard({ ...board(), scoresHidden: 'yes' }).scoresHidden, false, 'not a boolean');
-  eq(model.sanitizeBoard(board()).scoresHidden, false, 'missing (a board saved by an older version)');
+  const old = board();
+  delete old.scoresHidden;
+  delete old.revealed;
+  eq([model.sanitizeBoard(old).scoresHidden, model.sanitizeBoard(old).revealed], [false, []], 'missing (a board saved by an older version)');
+  eq(model.sanitizeBoard({ ...board(), scoresHidden: true, revealed: ['c', 'zz', 'c', 7] }).revealed, ['c'], 'only teams on the board, once each');
+  eq(model.sanitizeBoard({ ...board(), revealed: ['c'] }).revealed, [], 'nothing is revealed while the scores show');
 });
 
 test('set-title allows a blank title', () => {
@@ -299,9 +362,9 @@ test('sanitizeBoard applies the limits', () => {
 
 // ---------------------------------------------------------------- relay messages
 test('parseCommand only accepts well-formed commands', () => {
-  const good = { v: 1, from: 'abc', seq: 3, action: 'adjust-score', arg: { team: 'a', amount: 1 } };
+  const good = { v: PROTOCOL_VERSION, from: 'abc', seq: 3, action: 'adjust-score', arg: { team: 'a', amount: 1 } };
   eq(parseCommand(JSON.stringify(good)), { from: 'abc', seq: 3, action: 'adjust-score', arg: { team: 'a', amount: 1 } }, 'good');
-  eq(parseCommand(JSON.stringify({ ...good, v: 2 })), null, 'other version');
+  eq(parseCommand(JSON.stringify({ ...good, v: PROTOCOL_VERSION + 1 })), null, 'other version');
   eq(parseCommand(JSON.stringify({ ...good, action: 'format-disk' })), null, 'unknown action');
   eq(parseCommand(JSON.stringify({ ...good, seq: '3' })), null, 'seq not a number');
   eq(parseCommand(JSON.stringify({ ...good, from: 'x'.repeat(17) })), null, 'sender id too long');
@@ -311,16 +374,26 @@ test('parseCommand only accepts well-formed commands', () => {
 
 test('parseStatus cleans what the TV reports', () => {
   const s = parseStatus(JSON.stringify({
-    v: 1, online: true, at: 5, board: board([1, 2, 3]), undo: 'U'.repeat(500),
+    v: PROTOCOL_VERSION, online: true, at: 5, board: board([1, 2, 3]), undo: 'U'.repeat(500),
     acks: { abc: { seq: 4, ok: true }, def: { seq: 7, ok: false }, old: 3, bad: { seq: 'x' }, ['y'.repeat(20)]: { seq: 2 } },
   }));
   eq(s.board.teams.map((t) => t.score), [1, 2, 3], 'board');
   eq(s.undo.length, 200, 'undo label cut');
   eq(s.acks, { abc: { seq: 4, ok: true }, def: { seq: 7, ok: false } }, 'acks');
-  eq(parseStatus(JSON.stringify({ v: 1, online: false })), null, 'offline');
-  eq(parseStatus(JSON.stringify({ v: 1, online: true, board: 'nope' })), null, 'no board');
-  eq(parseStatus(JSON.stringify({ v: 1, online: true, board: board(), undo: '' })).undo, null, 'nothing to undo');
+  eq(parseStatus(JSON.stringify({ v: PROTOCOL_VERSION, online: false })), null, 'offline');
+  eq(parseStatus(JSON.stringify({ v: PROTOCOL_VERSION, online: true, board: 'nope' })), null, 'no board');
+  eq(parseStatus(JSON.stringify({ v: PROTOCOL_VERSION, online: true, board: board(), undo: '' })).undo, null, 'nothing to undo');
 });
+
+// The longest reveal label: two teams with the longest names tied for the win ("Revealed the winners: …").
+function longestReveal(b){
+  b = must(b, 'rename-team', { team: 'b', name: 'V'.repeat(NAME_MAX) }).board;
+  b = must(b, 'adjust-score', { team: 'c', amount: -1 }).board;
+  b = must(must(b, 'hide-scores').board, 'reveal-next').board;     // C, in last place
+  const label = must(b, 'reveal-next').label;
+  eq(label, `Revealed the winners: ${'W'.repeat(NAME_MAX)} & ${'V'.repeat(NAME_MAX)}`, 'the longest reveal');
+  return label;
+}
 
 test('every Undo label survives the trip to the phone unchanged', () => {
   // The phone sends the label back to say what it means to undo, so the status must never cut one.
@@ -333,9 +406,10 @@ test('every Undo label survives the trip to the phone unchanged', () => {
     must(b, 'rename-team', { team: 'a', name: 'X'.repeat(NAME_MAX) }).label,
     must(b, 'edit-powerup', { powerup: 'j', name: 'Y'.repeat(NAME_MAX) }).label,
     must(b, 'add-team', { name: 'Z'.repeat(NAME_MAX) }).label,
+    longestReveal(b),
   ];
   for(const label of labels){
-    eq(parseStatus(JSON.stringify({ v: 1, online: true, board: b, undo: label })).undo, label, 'label');
+    eq(parseStatus(JSON.stringify({ v: PROTOCOL_VERSION, online: true, board: b, undo: label })).undo, label, 'label');
   }
 });
 

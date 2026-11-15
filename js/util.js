@@ -32,11 +32,12 @@ export const store = {
 };
 
 // ---- ids and room codes ----
-export function randomString(length, chars){
+function randomString(length, chars){
   const values = crypto.getRandomValues(new Uint32Array(length));
   return Array.from(values, (v) => chars[v % chars.length]).join('');
 }
-export const newId = () => randomString(8, 'abcdefghijklmnopqrstuvwxyz0123456789');
+// A random id of lower-case letters and digits (teams, powerups, phones, copies of the board).
+export const randomId = (length = 8) => randomString(length, 'abcdefghijklmnopqrstuvwxyz0123456789');
 export const newRoomCode = () => randomString(ROOM_CODE_LENGTH, ROOM_CODE_CHARS);
 export const normaliseCode = (text) => String(text ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
 export const isValidCode = (code) => /^[A-Z0-9]{4,12}$/.test(code ?? '');

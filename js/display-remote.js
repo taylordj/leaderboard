@@ -17,7 +17,11 @@ export function initDisplayRemote({ perform, getStatus }){
   // phone session -> { seq, ok }: the last command handled from it, and whether it changed the board
   const acks = new Map();
   let lastPublished = '';
-  const connection = manageConnection(() => relay, { isDisplay: true });
+  const connection = manageConnection({
+    isLinked: () => !!relay,
+    reconnect: () => relay?.start(),
+    onLeave: () => relay?.stop(true),
+  });
 
   const remoteUrl = () => new URL(`remote.html?code=${code}`, location.href).toString();
   const isPaired = () => store.get(STORAGE.paired) === code;
@@ -143,7 +147,6 @@ export function initDisplayRemote({ perform, getStatus }){
     acks.clear();
     $('rcChip').hidden = false;
     connect();
-    renderUi();
     if(!isPaired()) openDialog();
   }
 

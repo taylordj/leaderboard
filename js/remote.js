@@ -1,22 +1,23 @@
-// The phone remote: the host runs the board from here. Every tap is sent to the board (the TV) as a
-// command, and the board's status brings back the whole scoreboard, which is what this page draws.
+// The phone remote (the Quiz Admin Panel): the host runs the board from here. Every tap is sent to the
+// board (the TV) as a command, and the board's status brings back the whole scoreboard, which is what
+// this page draws.
 //
-// Every team fits on one screen, each with its own −1 / +1. Tapping a team opens its sheet: ±5, a
-// custom amount and its powerups. A score or powerup tap shows at once, marked as pending, until the
-// board confirms it (its status carries the last command it handled from this phone, and whether that
-// changed anything). Anything not confirmed within a few seconds is reported, so the host never has
-// to wonder whether a tap landed.
+// Every team fits on one screen, each with its own − / + for the points per tap. Tapping a team's name
+// opens its sheet: more amounts, a custom amount and its powerups. A score or powerup tap shows at once,
+// marked as pending, until the board confirms it (its status carries the last command it handled from
+// this phone, and whether that changed anything). Anything not confirmed within a few seconds is
+// reported, so the host never has to wonder whether a tap landed.
 import {
   STORAGE, PALETTE, MAX_TEAMS, MAX_POWERUPS, MAX_ADJUST, NAME_MAX, TITLE_MAX,
   CONFIRM_TIMEOUT_MS, PING_AFTER_MS, GONE_AFTER_MS, DEFAULT_STEP, SHEET_AMOUNTS,
 } from './config.js';
 import {
-  $, store, escapeHtml, signed, ordinal, setText, normaliseCode, isValidCode, randomString, restartAnimation, armConfirm,
+  $, store, escapeHtml, signed, ordinal, setText, normaliseCode, isValidCode, randomId, restartAnimation, armConfirm,
 } from './util.js';
-import { rankInfo, cleanText, cleanIcon } from './model.js';
+import { rankInfo, nextReveal, isRevealing, lockedByReveal, cleanText, cleanIcon } from './model.js';
 import { openRelay, manageConnection } from './relay.js';
 
-const SESSION = randomString(8, 'abcdefghijklmnopqrstuvwxyz0123456789'); // which phone sent a command
+const SESSION = randomId(); // which phone sent a command
 let seq = 0;              // numbers this phone's commands, so the board can confirm them
 let relay = null;
 let code = '';
@@ -30,14 +31,17 @@ let note = null;          // { text, kind, until }: a message that takes over th
 let sheetTeam = null;     // the team whose sheet is open
 let swatchesFor = null;   // the team whose colour swatches are open in Setup
 
-// Points per tap on each team's − / + buttons: a setting of this phone, changed in Setup.
-const cleanStep = (value) => {
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 1 && n <= MAX_ADJUST ? n : 0;
+// A number of points typed in (the custom amount, or the points per tap): a whole number from 1 to
+// MAX_ADJUST, or 0 if it is not one. Phone number pads often have no minus key, so a sign is ignored.
+const points = (value) => {
+  const n = Math.abs(Math.round(Number(value)));
+  return n >= 1 && n <= MAX_ADJUST ? n : 0;
 };
-let step = cleanStep(store.get(STORAGE.step)) || DEFAULT_STEP;
+// Points per tap on each team's − / + buttons: a setting of this phone, changed in Setup.
+let step = points(store.get(STORAGE.step)) || DEFAULT_STEP;
 
-const connection = manageConnection(() => relay, { isDisplay: false });
+// After the phone wakes, it connects again exactly as it did the first time.
+const connection = manageConnection({ isLinked: () => !!relay, reconnect: () => { if(relay) connect(code); } });
 const findTeam = (id) => board?.teams.find((t) => t.id === id);
 const findPowerup = (id) => board?.powerups.find((p) => p.id === id);
 
@@ -86,7 +90,7 @@ function submitCode(){
 
 // ================================================================ sending and confirming
 
-// label: what the feedback line calls it. track: shown on the card as pending until confirmed.
+// label: what the feedback line calls it. track: shown on the team as pending until confirmed.
 // -> true if it went out on at least one link
 function send(action, arg, { label, track } = {}){
   const command = { from: SESSION, seq: ++seq, action };
@@ -181,15 +185,19 @@ function render(){
   if(status) board = status.board;
   settle(status);
   const live = !!status;
-  renderConnection(status);
-  renderHidden(live);
+  const state = connectionState(status);
+  $('rmStatus').className = `rm-status ${state.kind}`;
+  setText($('rmStatusText'), state.text);
+  fitTitle(state.text);
+  renderReveal(live);
   renderTeams(live);
   renderUndo(status);
   renderTeamSheet(live);
   renderSetup(live);
-  renderFeedback(status);
+  renderFeedback(state.hint);
 }
 
+// The pill in the header, and (as `hint`) why the controls are greyed out.
 function connectionState(status){
   if(!relay) return { kind: 'warn', text: 'Enter a room code', hint: '' };
   if(status) return { kind: 'ok', text: 'Board connected', hint: '' };
@@ -204,18 +212,24 @@ function connectionState(status){
   return { kind: 'warn', text: 'Waiting for the board…', hint: 'Waiting for the board. Is it open on the TV?' };
 }
 
-function renderConnection(status){
-  const { kind, text } = connectionState(status);
-  $('rmStatus').className = `rm-status ${kind}`;
-  setText($('rmStatusText'), text);
+// The header says "Quiz Admin Panel", or "Quiz Admin" when the status beside it leaves too little room
+// (a small phone, with a long status). It is measured, so it suits any screen and font.
+let titleFor = '';
+function fitTitle(statusText){
+  const key = `${statusText}|${innerWidth}`;
+  if(key === titleFor) return;
+  titleFor = key;
+  const title = $('rmTitle');
+  title.textContent = 'Quiz Admin Panel';
+  if(title.scrollWidth > title.clientWidth) title.textContent = 'Quiz Admin';
 }
 
 // The feedback line: a fresh message, then why controls are greyed out, then the latest tap.
-function renderFeedback(status){
+function renderFeedback(hint){
   const now = Date.now();
   let text = '', kind = '';
   if(note && now < note.until){ text = note.text; kind = note.kind; }
-  else if(relay && !status){ text = connectionState(status).hint; kind = 'hint'; }
+  else if(hint){ text = hint; kind = 'hint'; }
   else if(lastSent && !lastSent.ackedAt){ text = `Sending… ${lastSent.label}`; kind = 'sending'; }
   else if(lastSent && now - lastSent.ackedAt < 3500){ text = `✓ ${lastSent.label}`; }
   for(const el of document.querySelectorAll('.rm-last')){
@@ -256,19 +270,28 @@ function renderTeams(live){
   }
   layoutTeams();
 
+  // During the reveal the scores are locked, and a ✓ marks each team already revealed on the TV. The
+  // host still sees every score.
+  const revealing = isRevealing(board);
+  $('rmBoardHint').hidden = revealing;
+  $('rmLockHint').hidden = !revealing;
+  for(const btn of grid.querySelectorAll('.tm-btn')) btn.disabled = revealing;
+
+  // places are worked out from the scores as shown, taps on their way included
   const shown = board.teams.map((t) => ({ ...t, score: t.score + pendingDelta(t.id) }));
   const info = rankInfo(shown);
+  const onScore = new Map(info.groups.map((g) => [g.score, g.teams.length]));
   for(const team of shown){
     const row = grid.querySelector(`[data-team="${team.id}"]`);
     if(!row) continue;
+    row.classList.toggle('shown', board.revealed.includes(team.id));
     const rank = info.rankOf[team.id];
-    const tied = shown.filter((t) => t.score === team.score).length > 1;
     const rankEl = row.querySelector('.tm-rank');
-    setText(rankEl, info.allLevel ? '–' : `${tied ? '=' : ''}${ordinal(rank)}`);
+    setText(rankEl, info.allLevel ? '–' : `${onScore.get(team.score) > 1 ? '=' : ''}${ordinal(rank)}`);
     rankEl.classList.toggle('first', !info.allLevel && rank === 1);
     const num = row.querySelector('.tm-num');
     setText(num, String(team.score));
-    num.classList.toggle('pending', pendingDelta(team.id) !== 0);
+    num.classList.toggle('pending', team.score !== findTeam(team.id).score);
     for(const icon of row.querySelectorAll('.tm-pu')) icon.classList.toggle('used', shownUsed(team, icon.dataset.powerup).used);
   }
 }
@@ -311,13 +334,6 @@ function closeTeam(){
   sheetTeam = null;
 }
 
-// Phone number pads often have no minus key, so the box takes how many points, and the two
-// buttons say which way.
-function amountValue(){
-  const n = Math.abs(Math.round(Number($('rmAmount').value)));
-  return n >= 1 && n <= MAX_ADJUST ? n : 0;
-}
-
 function renderTeamSheet(live){
   if($('rmTeamSheet').hidden) return;
   const team = findTeam(sheetTeam);
@@ -339,10 +355,15 @@ function renderTeamSheet(live){
     quick.dataset.key = amounts.join();
   }
 
-  const n = amountValue();
+  // the custom amount: the box takes how many points, and the two buttons say which way
+  const locked = lockedByReveal(board, 'adjust-score');
+  for(const btn of quick.children) btn.disabled = locked;
+  $('rmAmount').disabled = locked;
+  $('rmTeamLocked').hidden = !locked;
+  const n = points($('rmAmount').value);
   setText($('rmAmountAdd'), n ? `+ Add ${n}` : '+ Add');
   setText($('rmAmountTake'), n ? `− Take away ${n}` : '− Take away');
-  $('rmAmountAdd').disabled = $('rmAmountTake').disabled = !n;
+  $('rmAmountAdd').disabled = $('rmAmountTake').disabled = !n || locked;
 
   const list = $('rmTeamPowerups');
   const key = board.powerups.map((p) => `${p.id}:${p.icon}:${p.name}`).join('|');
@@ -365,7 +386,7 @@ function renderTeamSheet(live){
 
 function applyAmount(sign){
   const team = findTeam(sheetTeam);
-  const n = amountValue();
+  const n = points($('rmAmount').value);
   if(!team || !n) return;
   adjust(team, sign * n);
   $('rmAmount').value = '';
@@ -390,15 +411,31 @@ function undo(){
   send('undo', { label }, { label: `Undo: ${label}` });
 }
 
-// While the board hides its scores, a bar above the teams says so, with the Reveal button.
-function renderHidden(live){
+// While the board hides its scores, a bar above the teams says so, and what the next tap of Next
+// reveals (Setup shows the same). Each tap reveals one place. Next stays greyed out until the board
+// confirms the last one, so a double tap never reveals two places.
+const revealHold = {};      // for hold() and isHeld(): the latest Next, until the board confirms it
+function renderReveal(live){
   const hidden = !!board?.scoresHidden;
   $('rmHidden').hidden = !hidden;
-  $('rmReveal').disabled = !live;
-  if(!hidden) for(const confirm of revealConfirms) confirm.disarm();
+  if(!hidden){ showConfirm.disarm(); return; }
+  const next = nextReveal(board);
+  setText($('rmHiddenState'), board.revealed.length ? `🥁 Revealing: ${next?.left ?? 0} to go` : '🙈 Scores hidden on the board');
+  const html = next ? `Next: <b>${escapeHtml(next.place)}</b> · ${escapeHtml(next.who)}` : 'Nothing left to reveal';
+  for(const el of document.querySelectorAll('.rm-next-text')){
+    if(el.dataset.key !== html){ el.innerHTML = html; el.dataset.key = html; }
+  }
+  $('rmNext').disabled = $('rmNextSetup').disabled = !live || isHeld(revealHold);
 }
 
-const reveal = () => send('reveal-scores', undefined, { label: 'Scores revealed' });
+// Next names the reveal the host can see, and the board does nothing if its next reveal is a
+// different one (another phone got in first, or a score changed).
+function revealNext(){
+  if(!board?.scoresHidden) return;
+  const label = nextReveal(board)?.label ?? 'Scores shown';
+  if(send('reveal-next', { label }, { label })) hold(revealHold);
+  render();
+}
 
 // ---------------------------------------------------------------- setup
 
@@ -409,7 +446,7 @@ function openSetup(){
 function closeSetup(){
   $('rmSetupSheet').hidden = true;
   swatchesFor = null;
-  for(const confirm of [resetConfirm, ...revealConfirms]) confirm.disarm();
+  for(const confirm of [resetConfirm, showConfirm]) confirm.disarm();
 }
 
 const teamItemHtml = (t) => `<div class="rm-item" data-id="${t.id}"><div class="rm-item-row">`
@@ -433,7 +470,9 @@ function patchTeamItem(el, team){
   const dot = el.querySelector('[data-color]');
   if(!isHeld(dot)){ dot.style.background = team.color; dot.dataset.color = team.color; }
   dot.setAttribute('aria-label', `Pick a colour for ${team.name}`);
-  el.querySelector('[data-remove]').setAttribute('aria-label', `Remove ${team.name}`);
+  const remove = el.querySelector('[data-remove]');
+  remove.setAttribute('aria-label', `Remove ${team.name}`);
+  remove.disabled = lockedByReveal(board, 'remove-team');
   patchInput(el.querySelector('[data-field="name"]'), team.name);
 
   const open = swatchesFor === team.id;
@@ -475,17 +514,25 @@ function renderList(list, items, itemHtml, patch, onRemove){
 function renderSetup(live){
   if($('rmSetupSheet').hidden) return;
   patchInput($('rmStepInput'), String(step));
-  $('rmSetupFields').disabled = !live;
+  for(const fieldset of document.querySelectorAll('#rmSetup .rm-fields')) fieldset.disabled = !live;
   setText($('rmCodeShow'), code || '------');
   if(!board) return;
   patchInput($('rmTitleInput'), board.title);
   $('rmHideScores').hidden = board.scoresHidden;
   $('rmRevealRow').hidden = !board.scoresHidden;
+  const revealing = isRevealing(board);
+  setText($('rmHideHint'), revealing
+    ? 'Scores, new teams, removing teams and Reset Round are locked until the reveal ends. Undo back to the start, or Show now, to change them.'
+    : 'The board shows the teams but not their scores. Next reveals one place at a time, last place first.');
+  $('rmHideHint').classList.toggle('locked', revealing);
+  $('rmReset').disabled = lockedByReveal(board, 'reset-round');
+  $('rmAddTeamName').disabled = lockedByReveal(board, 'add-team');
   renderList($('rmTeamList'), board.teams, teamItemHtml, patchTeamItem, removeTeam);
   renderList($('rmPowerupList'), board.powerups, powerupItemHtml, patchPowerupItem, removePowerup);
   setText($('rmTeamCount'), `${board.teams.length} / ${MAX_TEAMS}`);
   setText($('rmPowerupCount'), `${board.powerups.length} / ${MAX_POWERUPS}`);
-  $('rmAddTeamBtn').disabled = !cleanText($('rmAddTeamName').value, NAME_MAX) || board.teams.length >= MAX_TEAMS;
+  $('rmAddTeamBtn').disabled = !cleanText($('rmAddTeamName').value, NAME_MAX) || board.teams.length >= MAX_TEAMS
+    || lockedByReveal(board, 'add-team');
   $('rmAddPowerupBtn').disabled = !cleanText($('rmAddPowerupName').value, NAME_MAX) || board.powerups.length >= MAX_POWERUPS;
 }
 
@@ -498,30 +545,29 @@ function removePowerup(id){
   if(powerup) send('remove-powerup', { powerup: id }, { label: `Removed ${powerup.name}` });
 }
 
-// Add (or Enter in its box). The Add buttons grey out at the limits; the board checks them again anyway.
+// Add (or Enter in its box, which works even while the Add button is greyed out at the limit).
 function addTeam(){
   const input = $('rmAddTeamName');
   const name = cleanText(input.value, NAME_MAX);
-  if(name && send('add-team', { name }, { label: `Added ${name}` })) input.value = '';
+  if(name && board.teams.length < MAX_TEAMS && !lockedByReveal(board, 'add-team') && send('add-team', { name }, { label: `Added ${name}` })) input.value = '';
 }
 function addPowerup(){
   const nameInput = $('rmAddPowerupName');
   const name = cleanText(nameInput.value, NAME_MAX);
-  if(name && send('add-powerup', { name, icon: cleanIcon($('rmAddPowerupIcon').value) }, { label: `Added ${name}` })){
+  if(name && board.powerups.length < MAX_POWERUPS
+    && send('add-powerup', { name, icon: cleanIcon($('rmAddPowerupIcon').value) }, { label: `Added ${name}` })){
     nameInput.value = '';
     $('rmAddPowerupIcon').value = '';
   }
 }
 
 // Points per tap changed: kept on this phone, and the team rows show the new amount at once.
+// Anything that is not a number of points goes back to the old one.
 function stepChanged(){
   const input = $('rmStepInput');
-  const n = cleanStep(input.value);
-  if(n){
-    step = n;
-    store.set(STORAGE.step, String(n));
-  }
-  input.value = String(step);           // anything that is not a whole number from 1 to 1000 goes back
+  step = points(input.value) || step;
+  store.set(STORAGE.step, String(step));
+  input.value = String(step);
   render();
 }
 
@@ -536,30 +582,29 @@ function pickColor(team, color, dot){
   render();
 }
 
-// A text box was changed (on leaving it, or on Enter). A blank or unchanged value just goes back.
+// A text box was changed (on leaving it, or on Enter). The title may be blank; a blank or unchanged
+// name or icon just goes back to what it was. A change is sent, and the box holds it until confirmed.
 function fieldChanged(input){
   if(!board) return;
-  if(input.id === 'rmTitleInput'){
-    const title = cleanText(input.value, TITLE_MAX);
-    if(title === board.title){ input.value = title; return; }
-    if(send('set-title', { title }, { label: title ? 'Title changed' : 'Title removed' })) hold(input);
-    return;
-  }
+  const commit = (value, current, action, arg, label) => {
+    if((!value && input.id !== 'rmTitleInput') || value === current){ input.value = current; return; }
+    if(send(action, arg, { label })) hold(input);
+  };
   const id = input.closest('.rm-item')?.dataset.id;
   const team = input.closest('#rmTeamList') && findTeam(id);
   const powerup = input.closest('#rmPowerupList') && findPowerup(id);
-  if(team){
+  if(input.id === 'rmTitleInput'){
+    const title = cleanText(input.value, TITLE_MAX);
+    commit(title, board.title, 'set-title', { title }, title ? 'Title changed' : 'Title removed');
+  } else if(team){
     const name = cleanText(input.value, NAME_MAX);
-    if(!name || name === team.name){ input.value = team.name; return; }
-    if(send('rename-team', { team: id, name }, { label: `Renamed ${team.name} to ${name}` })) hold(input);
+    commit(name, team.name, 'rename-team', { team: id, name }, `Renamed ${team.name} to ${name}`);
   } else if(powerup && input.dataset.field === 'icon'){
     const icon = cleanIcon(input.value);
-    if(!icon || icon === powerup.icon){ input.value = powerup.icon; return; }
-    if(send('edit-powerup', { powerup: id, icon }, { label: `New icon for ${powerup.name}` })) hold(input);
+    commit(icon, powerup.icon, 'edit-powerup', { powerup: id, icon }, `New icon for ${powerup.name}`);
   } else if(powerup){
     const name = cleanText(input.value, NAME_MAX);
-    if(!name || name === powerup.name){ input.value = powerup.name; return; }
-    if(send('edit-powerup', { powerup: id, name }, { label: `Renamed ${powerup.name} to ${name}` })) hold(input);
+    commit(name, powerup.name, 'edit-powerup', { powerup: id, name }, `Renamed ${powerup.name} to ${name}`);
   }
 }
 
@@ -569,7 +614,7 @@ function fieldChanged(input){
 $('rmCodeBtn').addEventListener('click', submitCode);
 $('rmCodeInput').addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); submitCode(); } });
 
-// the teams: −1 / +1 on each row, and the row itself opens the team's sheet
+// the teams: − / + on each row (the points per tap), and the name opens the team's sheet
 $('rmTeams').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   const team = findTeam(btn?.closest('.tm')?.dataset.team);
@@ -599,19 +644,20 @@ $('rmSetupBtn').addEventListener('click', openSetup);
 $('rmSetupClose').addEventListener('click', closeSetup);
 $('rmSetupDone').addEventListener('click', closeSetup);
 $('rmSetupSheet').addEventListener('click', (e) => { if(e.target.id === 'rmSetupSheet') closeSetup(); });
-$('rmStepInput').addEventListener('change', stepChanged);
-$('rmStepInput').addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); $('rmStepInput').blur(); } });
-const fields = $('rmSetupFields');
-fields.addEventListener('change', (e) => { if(e.target.tagName === 'INPUT') fieldChanged(e.target); });
-fields.addEventListener('keydown', (e) => {
+const setup = $('rmSetup');
+setup.addEventListener('change', (e) => {
+  if(e.target.id === 'rmStepInput') stepChanged();
+  else if(e.target.tagName === 'INPUT') fieldChanged(e.target);
+});
+setup.addEventListener('keydown', (e) => {
   if(e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
   e.preventDefault();
   if(e.target.id === 'rmAddTeamName') addTeam();
   else if(e.target.id === 'rmAddPowerupName' || e.target.id === 'rmAddPowerupIcon') addPowerup();
   else e.target.blur();                         // which fires 'change'
 });
-fields.addEventListener('input', (e) => { if(e.target.id.startsWith('rmAdd')) render(); });
-fields.addEventListener('focusout', () => setTimeout(render, 0));   // lists catch up once typing stops
+setup.addEventListener('input', (e) => { if(e.target.id.startsWith('rmAdd')) render(); });
+setup.addEventListener('focusout', () => setTimeout(render, 0));   // lists catch up once typing stops
 $('rmTeamList').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-color], [data-swatch]');
   const team = btn && findTeam(btn.closest('.rm-item').dataset.id);
@@ -623,19 +669,18 @@ $('rmTeamList').addEventListener('click', (e) => {
 $('rmAddTeamBtn').addEventListener('click', addTeam);
 $('rmAddPowerupBtn').addEventListener('click', addPowerup);
 $('rmHideScores').addEventListener('click', () => send('hide-scores', undefined, { label: 'Scores hidden' }));
-// Revealing, or showing the scores straight away, cannot be taken back once the room has seen them,
-// so each takes two taps (from the bar on the scoring screen, or from Setup).
-const revealConfirms = [
-  armConfirm($('rmReveal'), 'Tap again', reveal),
-  armConfirm($('rmRevealSetup'), 'Tap again', reveal),
-  armConfirm($('rmShowScores'), 'Tap again', () => send('show-scores', undefined, { label: 'Scores shown' })),
-];
+// the reveal: Next (on the scoring screen, or in Setup) is one tap per place. Showing every score at
+// once cannot be taken back once the room has seen them, so it takes two.
+$('rmNext').addEventListener('click', revealNext);
+$('rmNextSetup').addEventListener('click', revealNext);
+const showConfirm = armConfirm($('rmShowScores'), 'Tap again', () => send('show-scores', undefined, { label: 'Scores shown' }));
 const resetConfirm = armConfirm($('rmReset'), 'Tap again to reset', () => send('reset-round', undefined, { label: 'Reset round' }));
 $('rmChange').addEventListener('click', () => showPairing(code));
 
 // the rows share the screen's height, so they are laid out again when it changes
 window.addEventListener('resize', render);
 LANDSCAPE.addEventListener?.('change', render);
+document.fonts?.ready.then(() => { titleFor = ''; render(); });   // the header is measured again in its own font
 
 // start: the code in the address, or the room this phone joined last time
 const params = new URLSearchParams(location.search);

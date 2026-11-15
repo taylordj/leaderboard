@@ -29,7 +29,7 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
   flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   font-family:var(--font-display); font-weight:600; font-size:1.75rem; line-height:1; color:var(--gold);
 }
-/* the connection is what matters here: the title gives way, the status never does */
+/* the connection is what matters here: the title gives way (remote.js fitTitle shortens it), the status never does */
 .rm-status{
   flex:0 0 auto; display:flex; align-items:center; gap:8px; min-width:0; padding:7px 12px; overflow:hidden; white-space:nowrap;
   background:var(--panel); border:1px solid var(--line); border-radius:999px;
@@ -55,25 +55,30 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 /* ---------- scoring ---------- */
 .rm-pad{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:8px; }
 
-/* the board is hiding its scores (the final round): say so, with the reveal at hand */
+/* the board is hiding its scores: say so, and what the next tap of Next reveals */
 .rm-hidden{
   flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:8px 8px 8px 14px;
   background:var(--gold-soft); border:1px solid rgba(245,180,0,0.45); border-radius:14px;
 }
-.rm-hidden-text{ flex:1 1 auto; min-width:0; font-size:0.92rem; font-weight:700; color:var(--gold); }
+.rm-hidden-text{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.rm-hidden-state{ font-size:0.74rem; font-weight:700; color:var(--gold); }
 .rm-hidden .btn{ flex:0 0 auto; padding:11px 16px; }
+/* "Next: 4th · Team Delta", here and in Setup */
+.rm-next-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.92rem; font-weight:700; color:var(--text); }
+.rm-next-text b{ color:var(--gold); }
 
 .rm-board{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:8px; padding:10px; }
 .rm-board-head{ flex:0 0 auto; display:flex; align-items:baseline; justify-content:space-between; padding:0 4px; }
 .rm-board-head .field-label{ margin:0; }
 .rm-board-hint{ font-size:0.74rem; font-weight:600; color:var(--muted); }
 .rm-board-hint b{ color:var(--gold); }
+.rm-board-hint.locked, .rm-hint.locked{ color:var(--gold); }
 .rm-teams{ flex:1 1 0; min-height:0; overflow-y:auto; scrollbar-width:none; }   /* scrolls only if a tiny screen leaves no choice */
 .rm-teams::-webkit-scrollbar{ display:none; }
 .rm-empty{ padding:40px 12px; text-align:center; color:var(--muted); font-size:0.92rem; line-height:1.5; }
 
 /* The rows share the card's height (layoutTeams sets --row-h and --cols, and one of four layouts):
-     roomy  few teams: the name, its place and powerup icons under it, a big score, tall −1 / +1 buttons
+     roomy  few teams: the name, its place and powerup icons under it, a big score, tall − / + buttons
      line   more teams: one line each
      tile   too many for one column: two columns of tiles, the buttons under the name
      mini   a great many teams on a small phone: two columns, the buttons beside the name */
@@ -87,7 +92,7 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
   padding:5px 5px 5px 0;
   background:var(--panel-2); border:1px solid var(--line); border-left:4px solid var(--team, var(--line-2)); border-radius:12px;
 }
-/* the team itself: tap for ±5, a custom amount and its powerups */
+/* the team itself: tap for more amounts, a custom amount and its powerups */
 .tm-open{
   min-width:0; display:grid; grid-template-columns:auto minmax(0, 1fr) auto;
   grid-template-areas:"rank name num"; align-content:center; align-items:center; column-gap:9px;
@@ -105,9 +110,12 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 .tm-name{ grid-area:name; min-width:0; display:flex; align-items:baseline; gap:5px; font-size:1rem; font-weight:700; }
 .tm-name-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tm-more{ flex:none; font-size:1.2em; font-weight:800; line-height:1; color:var(--gold); }
+/* during the reveal: a ✓ before each team already revealed on the TV */
+.tm-tick{ font-weight:800; color:var(--green); }
+.tm.shown .tm-name::before{ content:"✓"; flex:none; font-weight:800; color:var(--green); }
 .tm-meta{ display:contents; }   /* the place (and, when roomy, the powerups) under the name */
 .tm-pus{ display:none; gap:5px; }
-.tm-pu{ position:relative; font-size:0.95rem; line-height:1; }
+.tm-pu{ font-size:0.95rem; line-height:1; }
 .tm-pu.used{ filter:grayscale(1); opacity:0.35; }
 .tm-num{ grid-area:num; font-family:var(--font-display); font-weight:600; font-size:1.9rem; line-height:0.8; padding-top:4px; }
 .tm-num.pending{ color:var(--gold); }   /* a tap the board has not confirmed yet */
@@ -124,12 +132,11 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 .tm-btn.minus{ color:var(--red); }
 .tm-btn.sent{ animation:btnPop .28s ease; }
 
-.rm-team-grid.roomy .tm{ grid-template-columns:minmax(0, 1fr) 56px 56px; gap:6px; padding:7px 7px 7px 0; }
+.rm-team-grid.roomy .tm{ gap:6px; padding:7px 7px 7px 0; }
 .rm-team-grid.roomy .tm-open{ grid-template-columns:minmax(0, 1fr) auto; grid-template-areas:"name num" "meta num"; gap:8px 10px; padding-left:12px; }
 .rm-team-grid.roomy .tm-meta{ grid-area:meta; display:flex; align-items:center; gap:8px; min-width:0; overflow:hidden; }
-.rm-team-grid.roomy .tm-pus{ flex-wrap:wrap; gap:3px 4px; }   /* many powerups wrap onto a second line */
+.rm-team-grid.roomy .tm-pus{ display:flex; flex-wrap:wrap; gap:3px 4px; }   /* many powerups wrap onto a second line */
 .rm-team-grid.roomy .tm-name{ font-size:1.15rem; }
-.rm-team-grid.roomy .tm-pus{ display:flex; }
 .rm-team-grid.roomy .tm-num{ font-size:2.5rem; }
 .rm-team-grid.roomy .tm-btn{ font-size:1.2rem; }
 
@@ -206,9 +213,8 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 .rm-team-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.25rem; font-weight:800; }
 .rm-team-score{ flex:0 0 auto; font-family:var(--font-display); font-weight:600; font-size:2.6rem; line-height:0.8; padding-top:5px; }
 .rm-team-score.pending{ color:var(--gold); }
-#rmTeamFields{ display:block; }
 #rmTeamFields > * + *{ margin-top:10px; }
-#rmTeamFields .field-label{ margin-bottom:-2px; }
+#rmTeamFields .field-label{ margin-bottom:0; }   /* the 10px above is the only gap, under labels too */
 /* + amounts on the top row, − amounts under them; the points per tap is outlined in gold */
 .rm-quick{ display:grid; grid-template-columns:repeat(var(--n, 4), 1fr); gap:6px; }
 .rm-quick .tm-btn{ height:48px; font-size:1.1rem; }
@@ -216,7 +222,7 @@ fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
 #rmAmount{ font-family:var(--font-mono); font-size:1.4rem; font-weight:700; text-align:center; padding:10px; }
 
 /* powerups look like the board's badges: bright when available, struck through in red once used */
-.tm-powerups{ display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr)); gap:6px; }
+.rm-powerups{ display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr)); gap:6px; }
 .pu{
   position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
   min-width:0; height:58px; padding:3px 4px; cursor:pointer;

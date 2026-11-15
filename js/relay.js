@@ -6,14 +6,14 @@
 // browser. A remote opened in a second tab on the TV's laptop therefore works with no internet at all.
 //
 // Topics, for a room code such as A7K2QX:
-//   danslb/1/A7K2QX/cmd     phone -> TV   { v, from, seq, action, arg? }
-//   danslb/1/A7K2QX/status  TV -> phone   { v, online, at, board, undo, acks: { [from]: { seq, ok } } }
+//   danslb/2/A7K2QX/cmd     phone -> TV   { v, from, seq, action, arg? }
+//   danslb/2/A7K2QX/status  TV -> phone   { v, online, at, board, undo, acks: { [from]: { seq, ok } } }
 // The status message is "retained", so a phone that joins later gets it at once. If the TV disappears,
 // the relays publish its last-will message { v, online:false } in its place.
 // The room code is the only thing protecting a room, and anything can arrive on a public relay,
 // so every message is checked here before it is used.
 import { RELAYS, TOPIC_ROOT, PROTOCOL_VERSION, HEARTBEAT_MS, ACTIONS, MAX_ACKS } from './config.js';
-import { randomString } from './util.js';
+import { randomId } from './util.js';
 import { sanitizeBoard } from './model.js';
 
 const isSender = (from) => typeof from === 'string' && from.length > 0 && from.length <= 16;
@@ -76,6 +76,8 @@ export function openRelay({ role, code, onCommand = () => {}, onChange = () => {
     return count;
   };
 
+  const hearing = () => links.filter((link) => link.connected && link.status);   // phone: links the TV is online on
+
   function handleMessage(link, topic, payload){
     const raw = decode(payload);
     if(isDisplay && topic === cmdTopic){
@@ -95,7 +97,7 @@ export function openRelay({ role, code, onCommand = () => {}, onChange = () => {
 
   function connect(url){
     const options = {
-      clientId: `lb${role[0]}${randomString(9, 'abcdefghijklmnopqrstuvwxyz0123456789')}`,
+      clientId: `lb${role[0]}${randomId(9)}`,
       clean: true, keepalive: 15, reconnectPeriod: 2500, connectTimeout: 8000, protocolVersion: 4,
     };
     if(isDisplay) options.will = { topic: statusTopic, payload: offline, qos: 1, retain: true };
@@ -170,9 +172,6 @@ export function openRelay({ role, code, onCommand = () => {}, onChange = () => {
       }
     },
 
-    // Sockets opened before a phone or tablet slept are often dead: start again from scratch.
-    reconnect(){ relay.start(); },
-
     // How many internet relays are connected (the same-browser link is not counted).
     connectedCount: () => links.filter((l) => l.connected && !l.local).length,
 
@@ -189,30 +188,25 @@ export function openRelay({ role, code, onCommand = () => {}, onChange = () => {
     },
     // The newest status from any link, or null if the TV is not online.
     latestStatus(){
-      let newest = null;
-      for(const link of links){
-        if(link.connected && link.status && (!newest || link.status.at >= newest.at)) newest = link.status;
-      }
-      return newest;
+      return hearing().reduce((newest, link) => (!newest || link.status.at >= newest.at ? link.status : newest), null);
     },
     // When this phone last heard the TV on any link (0 = never).
-    lastHeard(){
-      let latest = 0;
-      for(const link of links) if(link.connected && link.status) latest = Math.max(latest, link.heardAt || 0);
-      return latest;
-    },
+    lastHeard: () => Math.max(0, ...hearing().map((link) => link.heardAt)),
   };
   return relay;
 }
 
-// Keeps a link healthy on phones and tablets: reconnects after the device wakes or comes back online,
-// and keeps the screen awake while linked. getRelay() returns the current relay (or null).
-export function manageConnection(getRelay, { isDisplay }){
+// Keeps a link healthy on phones and tablets: reconnects after the device wakes or comes back online
+// (sockets opened before it slept are often dead), and keeps the screen awake while linked.
+//   isLinked()   is there a link right now?
+//   reconnect()  start the link again from scratch
+//   onLeave()    the page is closing (the TV says goodbye to the phones)
+export function manageConnection({ isLinked, reconnect, onLeave }){
   let hiddenAt = 0;
   let wakeLock = null;
 
   async function requestWake(){
-    if(!getRelay() || wakeLock || document.hidden || !('wakeLock' in navigator)) return;
+    if(!isLinked() || wakeLock || document.hidden || !('wakeLock' in navigator)) return;
     try {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => { wakeLock = null; });
@@ -225,12 +219,12 @@ export function manageConnection(getRelay, { isDisplay }){
 
   document.addEventListener('visibilitychange', () => {
     if(document.hidden){ hiddenAt = Date.now(); return; }
-    if(hiddenAt && Date.now() - hiddenAt > 4000) getRelay()?.reconnect();
+    if(hiddenAt && Date.now() - hiddenAt > 4000) reconnect();
     requestWake();
   });
-  window.addEventListener('online', () => getRelay()?.reconnect());
-  window.addEventListener('pageshow', (e) => { if(e.persisted) getRelay()?.reconnect(); });
-  if(isDisplay) window.addEventListener('pagehide', () => getRelay()?.stop(true));
+  window.addEventListener('online', reconnect);
+  window.addEventListener('pageshow', (e) => { if(e.persisted) reconnect(); });
+  if(onLeave) window.addEventListener('pagehide', onLeave);
   document.addEventListener('pointerdown', requestWake, { passive: true });
 
   return { requestWake, releaseWake };

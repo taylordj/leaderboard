@@ -82,7 +82,7 @@ body::after{
 /* rank | name and bar | powerups | gaps | score. Every row has the same powerups, so the columns line up. */
 .row{
   position:relative; overflow:hidden;
-  display:grid; grid-template-columns:44px minmax(0, 1fr) auto 250px 86px; align-items:center; column-gap:14px;
+  display:grid; grid-template-columns:44px minmax(0, 1fr) auto 210px 86px; align-items:center; column-gap:14px;
   min-height:64px; padding:8px 18px 8px 10px;
   background:var(--panel-2); border:1px solid var(--line); border-radius:12px;
 }
@@ -192,7 +192,7 @@ body::after{
 }
 @keyframes strike-out{ 0%{ opacity:1; transform:scale(1); } 100%{ opacity:0; transform:scale(1.4); } }
 
-/* ---- gaps: "12 behind Team Beta (Leader)"; a long name is cut short, never the points or the place ---- */
+/* ---- gaps: "12 behind Team Beta"; a long name is cut short, never the points ---- */
 .gap-wrap{ min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
 .gap-chip{
   display:flex; align-items:baseline; max-width:100%; padding:2px 10px; border-radius:999px; white-space:nowrap;
@@ -215,14 +215,17 @@ body::after{
 
 .empty-note{ padding:40px 0; text-align:center; font-size:18px; color:var(--muted); }
 
-/* ---------- scores hidden for the final round, and the reveal ----------
+/* ---------- scores hidden, and the reveal ----------
    While hidden, display.js keeps the rows in setup order with "?" for rank and score, and no gaps.
-   The bars are hidden too, because their lengths would give the order away. The reveal (playReveal)
-   veils every row, then lifts the veil one place at a time, last place first. */
+   The bars are hidden too, because their lengths would give the order away. Each tap of Next on the
+   phone reveals one more place, last place first. The rows are then in their final order, and the
+   places still to come are empty slots (.veiled), all alike, so their order gives nothing away. */
 .board.scores-hidden .bar-fill, .board.revealing .bar-fill{ visibility:hidden; }
 .board.scores-hidden .score{ color:var(--faint); }
-.board.revealing .row{ transition:opacity .6s ease, transform .6s cubic-bezier(.2,.7,.3,1); }
-.row.veiled{ opacity:0; transform:translateY(12px) scale(0.98); }
+.board.revealing .row{ transition:background-color .6s ease, border-color .6s ease; }
+.board.revealing .row > *{ transition:opacity .6s ease, transform .6s cubic-bezier(.2,.7,.3,1); }
+.row.veiled{ background-color:transparent; border-color:var(--line-2); border-style:dashed; }
+.row.veiled > *{ opacity:0; transform:translateY(10px); }
 
 /* the winner's moment: a bigger pulse and a gold wash (after the rules above, so it wins) */
 .row.fx-crowned{ animation:fx-crowned 1.6s cubic-bezier(.3,1.4,.4,1); }
