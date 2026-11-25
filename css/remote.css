@@ -1,0 +1,226 @@
+/* The phone remote (remote.html), in the board's style: a gold title and card panels. Portrait, one
+   hand: every team fits on the screen (js/remote.js layoutTeams sizes the rows), with the Undo / Setup
+   bar at the bottom within reach of a thumb. The page, its header, the room code box, the feedback line,
+   the buttons and the sheets are in base.css. */
+
+:root{
+  /* keep clear of the screen edges, which some phones curve or fade */
+  --edge-t:calc(env(safe-area-inset-top, 0px) + 14px);
+  --edge-r:calc(env(safe-area-inset-right, 0px) + 14px);
+  --edge-b:calc(env(safe-area-inset-bottom, 0px) + 14px);
+  --edge-l:calc(env(safe-area-inset-left, 0px) + 14px);
+}
+
+fieldset{ min-width:0; min-inline-size:0; margin:0; padding:0; border:0; }
+
+/* ---------- scoring ---------- */
+.rm-pad{ gap:8px; }
+
+/* the board is hiding its scores: say so, and what the next tap of Next reveals */
+.rm-hidden{
+  flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:8px 8px 8px 14px;
+  background:var(--gold-soft); border:1px solid rgba(245,180,0,0.45); border-radius:14px;
+}
+.rm-hidden-text{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.rm-hidden-state{ font-size:0.74rem; font-weight:700; color:var(--gold); }
+.rm-hidden .btn{ flex:0 0 auto; padding:11px 16px; }
+/* "Next: 4th · Team Delta", here and in Setup */
+.rm-next-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.92rem; font-weight:700; color:var(--text); }
+.rm-next-text b{ color:var(--gold); }
+
+.rm-board{
+  flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:8px; padding:10px;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); box-shadow:var(--shadow);
+}
+.rm-board-head{ flex:0 0 auto; display:flex; align-items:baseline; justify-content:space-between; padding:0 4px; }
+.rm-board-head .field-label{ margin:0; }
+.rm-board-hint{ font-size:0.74rem; font-weight:600; color:var(--muted); }
+.rm-board-hint b{ color:var(--gold); }
+.rm-board-hint.locked, .rm-hint.locked{ color:var(--gold); }
+.rm-teams{ flex:1 1 0; min-height:0; overflow-y:auto; scrollbar-width:none; }   /* scrolls only if a tiny screen leaves no choice */
+.rm-teams::-webkit-scrollbar{ display:none; }
+.rm-empty{ padding:40px 12px; text-align:center; color:var(--muted); font-size:0.92rem; line-height:1.5; }
+
+/* The rows share the card's height (layoutTeams sets --row-h and --cols, and one of four layouts):
+     roomy  few teams: the name, its place and powerup icons under it, a big score, tall − / + buttons
+     line   more teams: one line each
+     tile   too many for one column: two columns of tiles, the buttons under the name
+     mini   a great many teams on a small phone: two columns, the buttons beside the name */
+.rm-team-grid{
+  display:grid; grid-template-columns:repeat(var(--cols, 1), minmax(0, 1fr)); grid-auto-rows:var(--row-h, 56px);
+  gap:6px; align-content:start;
+}
+.tm{
+  min-width:0; min-height:0; overflow:hidden;
+  display:grid; grid-template-columns:minmax(0, 1fr) 56px 56px; gap:5px;
+  padding:5px 5px 5px 0;
+  background:var(--panel-2); border:1px solid var(--line); border-left:4px solid var(--team, var(--line-2)); border-radius:12px;
+}
+/* the team itself: tap for more amounts, a custom amount and its powerups */
+.tm-open{
+  min-width:0; display:grid; grid-template-columns:auto minmax(0, 1fr) auto;
+  grid-template-areas:"rank name num"; align-content:center; align-items:center; column-gap:9px;
+  padding:0 4px 0 9px; text-align:left;
+  background:none; border:0; border-radius:8px; color:inherit;
+}
+.tm-open:active{ background:rgba(255,255,255,0.04); }
+.tm-rank{
+  grid-area:rank; min-width:38px; padding:2px 6px; text-align:center; border-radius:999px;
+  font-family:var(--font-mono); font-size:0.7rem; font-weight:700; background:var(--bg-2); color:var(--muted);
+}
+.tm-rank.first{ background:var(--gold-soft); color:var(--gold); }
+/* the name, then a gold › that says "tap for more" */
+.tm-name{ grid-area:name; min-width:0; display:flex; align-items:baseline; gap:5px; font-size:1rem; font-weight:700; }
+.tm-name-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tm-more{ flex:none; font-size:1.2em; font-weight:800; line-height:1; color:var(--gold); }
+/* during the reveal: a ✓ before each team already revealed on the TV */
+.tm-tick{ font-weight:800; color:var(--green); }
+.tm.shown .tm-name::before{ content:"✓"; flex:none; font-weight:800; color:var(--green); }
+.tm-meta{ display:contents; }   /* the place (and, when roomy, the powerups) under the name */
+.tm-pus{ display:none; gap:5px; }
+.tm-pu{ font-size:0.95rem; line-height:1; }
+.tm-pu.used{ filter:grayscale(1); opacity:0.35; }
+.tm-num{ grid-area:num; font-family:var(--font-display); font-weight:600; font-size:1.9rem; line-height:0.8; padding-top:4px; }
+.tm-num.pending{ color:var(--gold); }   /* a tap the board has not confirmed yet */
+
+.tm-btn{
+  min-height:0; padding:0;
+  background:var(--bg-2); border:1px solid var(--line-2); border-radius:10px;
+  font-family:var(--font-mono); font-size:1.05rem; font-weight:700; color:var(--text);
+  transition:transform .08s ease, background .15s ease;
+}
+.tm-btn:active{ transform:scale(0.94); background:var(--raised); }
+.tm-btn.plus{ color:var(--green); }
+.tm-btn.minus{ color:var(--red); }
+
+.rm-team-grid.roomy .tm{ gap:6px; padding:7px 7px 7px 0; }
+.rm-team-grid.roomy .tm-open{ grid-template-columns:minmax(0, 1fr) auto; grid-template-areas:"name num" "meta num"; gap:8px 10px; padding-left:12px; }
+.rm-team-grid.roomy .tm-meta{ grid-area:meta; display:flex; align-items:center; gap:8px; min-width:0; overflow:hidden; }
+.rm-team-grid.roomy .tm-pus{ display:flex; flex-wrap:wrap; gap:3px 4px; }   /* many powerups wrap onto a second line */
+.rm-team-grid.roomy .tm-name{ font-size:1.15rem; }
+.rm-team-grid.roomy .tm-num{ font-size:2.5rem; }
+.rm-team-grid.roomy .tm-btn{ font-size:1.2rem; }
+
+.rm-team-grid:is(.tile, .mini) .tm-open{ grid-template-columns:minmax(0, 1fr) auto; grid-template-areas:"name num"; }
+.rm-team-grid:is(.tile, .mini) .tm-rank{ display:none; }
+
+.rm-team-grid.tile .tm{ grid-template-columns:1fr 1fr; grid-template-rows:auto minmax(0, 1fr); gap:3px; padding:3px 4px 4px 4px; }
+.rm-team-grid.tile .tm-open{ grid-column:1 / -1; padding:0 2px 0 4px; }
+.rm-team-grid.tile .tm-name{ font-size:0.82rem; }
+.rm-team-grid.tile .tm-num{ font-size:1.3rem; padding-top:2px; }
+.rm-team-grid.tile .tm-btn{ font-size:0.88rem; border-radius:8px; }
+
+.rm-team-grid.mini .tm{ grid-template-columns:minmax(0, 1fr) 34px 34px; gap:3px; padding:3px 3px 3px 0; }
+.rm-team-grid.mini .tm-open{ column-gap:4px; padding:0 2px 0 6px; }
+.rm-team-grid.mini .tm-name{ font-size:0.76rem; }
+.rm-team-grid.mini .tm-num{ font-size:1.1rem; padding-top:2px; }
+.rm-team-grid.mini .tm-btn{ font-size:0.78rem; border-radius:7px; }
+
+/* the Undo / Setup bar at the bottom */
+.rm-bar{ flex:0 0 auto; display:grid; grid-template-columns:minmax(0, 1.7fr) minmax(0, 1fr); gap:10px; }
+.rm-plus{ background:var(--green-soft); border-color:var(--green); color:var(--green); }
+.rm-minus{ background:var(--red-soft); border-color:var(--red); color:var(--red); }
+.rm-danger{ width:100%; border-color:rgba(255,92,122,0.5); color:var(--red); }
+.rm-undo{ min-width:0; }
+.rm-undo-icon{ flex:0 0 auto; font-size:1.25rem; }
+.rm-undo-text{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.92rem; }
+
+/* the board's own controls grey out like the ones in base.css */
+#remote :is(.tm-btn, .pu, .rm-dot-btn, .rm-remove, .rm-swatch):disabled{
+  background:var(--disabled-bg); border-color:var(--disabled-line); color:var(--disabled-ink);
+  box-shadow:none; opacity:0.6; cursor:not-allowed; transform:none;
+}
+#remote .tm-open:disabled{ opacity:0.6; }
+#remote .pu:disabled .pu-ic{ filter:grayscale(1); }
+
+/* ---------- one team ---------- */
+.rm-team-head{ display:flex; align-items:center; gap:12px; padding:2px 2px 2px 12px; border-left:5px solid var(--team, var(--line-2)); }
+.rm-team-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.25rem; font-weight:800; }
+.rm-team-score{ flex:0 0 auto; font-family:var(--font-display); font-weight:600; font-size:2.6rem; line-height:0.8; padding-top:5px; }
+.rm-team-score.pending{ color:var(--gold); }
+#rmTeamFields > * + *{ margin-top:10px; }
+#rmTeamFields .field-label{ margin-bottom:0; }   /* the 10px above is the only gap, under labels too */
+/* + amounts on the top row, − amounts under them; the points per tap is outlined in gold */
+.rm-quick{ display:grid; grid-template-columns:repeat(var(--n, 4), 1fr); gap:6px; }
+.rm-quick .tm-btn{ height:48px; font-size:1.1rem; }
+.rm-quick .tm-btn.step{ border-color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold-soft); }
+#rmAmount{ font-family:var(--font-mono); font-size:1.4rem; font-weight:700; text-align:center; padding:10px; }
+
+/* powerups look like the board's badges: bright when available, struck through in red once used */
+.rm-powerups{ display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr)); gap:6px; }
+.pu{
+  position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  min-width:0; height:58px; padding:3px 4px;
+  background:var(--bg-2); border:1px solid var(--line-2); border-radius:12px; color:var(--text);
+  transition:transform .08s ease, opacity .2s ease;
+}
+.pu:active{ transform:scale(0.95); }
+.pu-ic{ font-size:1.35rem; line-height:1; }
+.pu-name{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.68rem; font-weight:700; color:var(--muted); }
+.pu.used{ background:rgba(255,92,122,0.07); border-color:rgba(255,92,122,0.35); }
+.pu.used .pu-ic, .pu.used .pu-name{ filter:grayscale(1); opacity:0.45; }
+.pu.used::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(to bottom right,
+    transparent calc(50% - 1.5px), var(--red) calc(50% - 1.5px),
+    var(--red) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
+.pu.pending{ border-style:dashed; border-color:var(--gold); }
+
+/* ---------- setup (a full sheet: its middle scrolls) ---------- */
+.rm-setup{
+  flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:22px; padding:4px 0 8px;
+  overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch;
+}
+.rm-setup::-webkit-scrollbar{ display:none; }
+.rm-fields > .rm-section + .rm-section{ margin-top:22px; }   /* a <fieldset>: kept a plain block, which every browser lays out the same */
+.rm-section{ display:flex; flex-direction:column; gap:8px; }
+.rm-section .field-label{ margin-bottom:0; }
+.rm-section-head{ display:flex; align-items:baseline; justify-content:space-between; }
+.rm-count{ font-family:var(--font-mono); font-size:0.74rem; font-weight:700; color:var(--faint); }
+.rm-hint{ margin:0; font-size:0.78rem; line-height:1.4; color:var(--faint); }
+.rm-list{ display:flex; flex-direction:column; gap:6px; }
+.rm-item{ display:flex; flex-direction:column; gap:6px; }
+.rm-item-row{ display:flex; align-items:center; gap:6px; }
+.rm-item-row input{ flex:1 1 0; padding:9px 10px; }
+.rm-dot-btn{
+  flex:0 0 38px; width:38px; height:38px; padding:0; border-radius:50%;
+  border:2px solid rgba(255,255,255,0.25);
+}
+.rm-dot-btn:active{ transform:scale(0.92); }
+.rm-dot-btn[aria-expanded="true"]{ border-color:var(--text); box-shadow:0 0 0 3px rgba(255,255,255,0.15); }
+.rm-icon-input{ flex:0 0 54px !important; width:54px; text-align:center; padding-left:4px !important; padding-right:4px !important; }
+.rm-remove{
+  flex:0 0 auto; min-width:42px; height:40px; padding:0 10px;
+  background:var(--panel-2); border:1px solid var(--line-2); border-radius:10px; color:var(--muted);
+  font-size:0.85rem; font-weight:700;
+}
+
+/* colour swatches, under a team in Setup: the current colour is ringed, other teams' colours are marked */
+.rm-swatches{
+  display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; padding:10px;
+  background:var(--bg-2); border:1px solid var(--line); border-radius:12px;
+}
+.rm-swatch{
+  position:relative; aspect-ratio:1; padding:0; border-radius:50%;
+  background:var(--swatch); border:2px solid transparent;
+}
+.rm-swatch:active{ transform:scale(0.92); }
+.rm-swatch.current{ border-color:var(--text); box-shadow:0 0 0 3px rgba(255,255,255,0.18); }
+.rm-swatch.taken::after{   /* another team has this colour: a small dark dot in the middle */
+  content:""; position:absolute; left:50%; top:50%; width:26%; height:26%; transform:translate(-50%, -50%);
+  border-radius:50%; background:rgba(10,14,26,0.75);
+}
+
+.rm-conn{ font-size:0.9rem; color:var(--muted); }
+.rm-conn b{ margin-left:6px; font-family:var(--font-mono); letter-spacing:0.18em; color:var(--gold); }
+.rm-foot{ display:flex; gap:14px; flex-wrap:wrap; }
+.rm-foot .link-btn{ padding-left:0; }
+
+/* Turned sideways on a phone, the page scrolls rather than squashes (base.css), and so do these parts.
+   (Last, so it wins.) */
+@media (orientation: landscape) and (max-height: 500px){
+  .rm-board{ flex:none; }
+  .rm-teams{ flex:none; overflow:visible; }
+  .rm-setup{ flex:none; overflow:visible; }
+}

@@ -1,0 +1,35 @@
+/* The Leaderboard's look: its colours, fonts and corners, which base.css uses. */
+
+:root{
+  --bg:#0A0E1A;
+  --bg-2:#0D1224;
+  --panel:#131A2E;
+  --panel-2:#1B2340;
+  --raised:#212A48;
+  --line:#262E4A;
+  --line-2:#333D5E;
+  --line-hover:#4A5580;
+
+  --gold:#F5B400;  --gold-hover:#FFC733;  --gold-soft:rgba(245,180,0,0.14);  --gold-ink:#241A00;
+  --red:#FF5C7A;   --red-soft:rgba(255,92,122,0.14);
+  --green:#6FDD8B; --green-soft:rgba(111,221,139,0.16);
+  --text:#EDEFF5;
+  --muted:#8A93A8;
+  --faint:#545C78;
+
+  --disabled-bg:#171C2E;  --disabled-line:#232A42;  --disabled-ink:#4F5772;
+
+  --shadow:0 30px 80px rgba(0,0,0,0.5);
+  --font-display:'Teko','Oswald','Arial Narrow',sans-serif;
+  --font-body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+
+  /* the names base.css uses */
+  --font-display-weight:600;
+  --ok:var(--green);  --ok-soft:var(--green-soft);       /* connected, done */
+  --focus:var(--gold);  --focus-soft:transparent;
+  --field:var(--bg-2);                                   /* text and number boxes */
+  --radius-card:18px;
+  --radius-dialog:22px;
+  --backdrop:radial-gradient(ellipse 120% 80% at 50% -10%, #17204A 0%, var(--bg) 55%), var(--bg);
+}
